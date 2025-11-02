@@ -332,6 +332,41 @@
       font-weight: bold;
     }
     
+    .replay-controls {
+      position: absolute;
+      bottom: 50px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(255, 255, 255, 0.9);
+      padding: 10px 15px;
+      border-radius: 6px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+      z-index: 1000;
+      display: none;
+      align-items: center;
+      gap: 10px;
+    }
+    
+    .replay-controls button {
+      padding: 4px 8px;
+      font-size: 12px;
+    }
+    
+    .replay-slider {
+      width: 200px;
+    }
+    
+    .replay-time {
+      font-size: 14px;
+      font-weight: bold;
+      min-width: 150px;
+      text-align: center;
+    }
+    
+    .replay-speed {
+      width: 80px;
+    }
+    
     @media (max-width: 768px) {
       body {
         flex-direction: column;
@@ -344,6 +379,18 @@
       
       #map {
         height: 60%;
+      }
+      
+      .replay-controls {
+        bottom: 10px;
+        left: 10px;
+        transform: none;
+        flex-wrap: wrap;
+        width: calc(100% - 20px);
+      }
+      
+      .replay-slider {
+        width: 100%;
       }
     }
   </style>
@@ -359,10 +406,28 @@
       <button onclick="switchMapStyle('osm')">世界地图</button>
       <button onclick="switchMapStyle('gaode')">高德地图</button>
       <button onclick="switchMapStyle('satellite')">卫星地图</button>
+      <button onclick="toggleReplay()" id="replayToggleBtn">地震回放</button>
     </div>
     <div class="alert-banner" id="alertBanner">
       <span id="alertText"></span>
       <button onclick="closeAlert()" style="margin-left: 10px; background: white; color: #e74c3c;">关闭</button>
+    </div>
+    <div class="replay-controls" id="replayControls">
+      <button onclick="replayFirst()" title="跳到开始">⏮</button>
+      <button onclick="replayPrev()" title="上一步">◀</button>
+      <button onclick="toggleReplayPlay()" id="replayPlayBtn">▶</button>
+      <button onclick="replayNext()" title="下一步">▶</button>
+      <button onclick="replayLast()" title="跳到结束">⏭</button>
+      <input type="range" min="0" max="100" value="0" class="replay-slider" id="replaySlider">
+      <span class="replay-time" id="replayTime">--</span>
+      <select class="replay-speed" id="replaySpeed">
+        <option value="5000">0.2x</option>
+        <option value="2000" selected>0.5x</option>
+        <option value="1000">1x</option>
+        <option value="500">2x</option>
+        <option value="250">4x</option>
+      </select>
+      <button onclick="toggleReplay()" style="background: #e74c3c;">关闭回放</button>
     </div>
   </div>
   <div id="sidebar">
@@ -423,7 +488,7 @@
   </div>
   
   <!-- 多种音效 -->
-  <audio id="alert" src="data:audio/wav;base64,UklGRoABAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8A" preload="auto"></audio>
+  <audio id="alert" src="data:audio/wav;base64,UklGRoABAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8A" preload="auto"></audio>
   <audio id="countdown" preload="auto"></audio>
   <audio id="srev" preload="auto"></audio>
   
@@ -574,6 +639,13 @@
     var lastMaxQuakeTime = '';
     var filteredQuakes = [];
 
+    // 地震回放相关变量
+    var isReplayMode = false;
+    var replayInterval = null;
+    var currentReplayIndex = 0;
+    var replayQuakes = [];
+    var replayMarkers = [];
+
     function savePos() {
       var newLat = parseFloat(document.getElementById('lat').value);
       var newLon = parseFloat(document.getElementById('lon').value);
@@ -649,7 +721,7 @@
       quakes = quakes.filter(q => q.mag && q.time);
       
       // 按时间排序
-      quakes.sort((a, b) => new Date(b.time) - new Date(a.time));
+      quakes.sort((a, b) => new Date(a.time) - new Date(b.time));
       quakeHistory = quakes.slice(0, 50);
       applyFilters();
       document.getElementById('status').innerText = "数据已更新 " + new Date().toLocaleTimeString();
@@ -896,60 +968,4 @@
         label.style.left = `${position}%`;
         label.textContent = `M${q.mag}`;
         
-        timeline.appendChild(marker);
-        timeline.appendChild(label);
-      });
-    }
-
-    function copyToClipboard(text) {
-      navigator.clipboard.writeText(text).then(() => {
-        document.getElementById('copyInfo').innerText = "已复制：" + text;
-        setTimeout(()=>{document.getElementById('copyInfo').innerText="可点击历史地震项复制信息";},1500);
-      }).catch(err => {
-        console.error('复制失败:', err);
-      });
-    }
-
-    function triggerAlert(quakes) {
-      if (!quakes || quakes.length === 0) return;
-      
-      // 找出最近的地震
-      let latestQuake = quakes[0];
-      let mag = parseFloat(latestQuake.mag);
-      let dist = (latestQuake.lat && latestQuake.lon) ? haversine(
-        parseFloat(document.getElementById('lat').value),
-        parseFloat(document.getElementById('lon').value),
-        latestQuake.lat,
-        latestQuake.lon
-      ) : null;
-      
-      let shouldAlert = (mag >= 5 && dist !== null && dist <= 200);
-      
-      if (shouldAlert && lastMaxQuakeTime !== latestQuake.time) {
-        lastMaxQuakeTime = latestQuake.time;
-        
-        // 显示警报横幅
-        document.getElementById('alertText').textContent = `警报：附近发生M${mag}级地震，距离约${dist.toFixed(1)}公里`;
-        document.getElementById('alertBanner').style.display = 'block';
-        
-        // 播放警报音效
-        var audio = document.getElementById('alert');
-        audio.currentTime = 0;
-        audio.play().catch(e => console.log("音频播放失败:", e));
-        
-        // 5秒后自动关闭警报
-        setTimeout(closeAlert, 5000);
-      }
-    }
-
-    function closeAlert() {
-      document.getElementById('alertBanner').style.display = 'none';
-    }
-
-    // 初始化加载数据
-    fetchQuakeData();
-    // 每分钟更新一次数据
-    setInterval(fetchQuakeData, 60 * 1000);
-  </script>
-</body>
-</html>
+  
