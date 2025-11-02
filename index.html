@@ -2,18 +2,19 @@
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8">
-  <title>haGQ</title>
+  <title>全球地震实时播报</title>
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <link rel="icon" href="data:image/png;base64,iVBORw0KGGoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA45jBdwAAAABJRU5ErkJggg=="/>
+  <link rel="icon" href="https://upload.wikimedia.org/wikipedia/commons/7/73/Emojione_1F4A5.svg" type="image/svg+xml"/>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
   <style>
-    body{margin:0;font-family:Arial;background:#f2f2g;display:flex;height:100vh;}
-    h1{font-size:22px;margin:10px;}
+    body{margin:0;font-family:Arial;background:#f2f2f2;display:flex;height:100vh;}
     #map{flex:1;height:100%;}
     #sidebar{width:350px;background:#fff;box-shadow:-2px 0 5px rgba(0,0,0,.1);padding:10px;overflow-y:auto;}
-    .item{background:#f7f7f7;margin:6px 0;padding:8px;border-radius:4px;}
-    .mag{font-weight:bold;font-size:18px;}
-    .dist{color:#666;}
+    .item{background:#f7f7f7;margin:6px 0;padding:8px;border-radius:4px;cursor:pointer;display:flex;align-items:center;}
+    .mag{font-weight:bold;font-size:18px;margin-right:8px;}
+    .dist{color:#666; margin-left:10px;}
+    .intensity{margin-left:10px;font-size:16px;font-weight:bold;}
+    .icon{width:28px;height:28px;display:inline-block;}
     .setting{background:#e9e9e9;padding:10px;border-radius:6px;margin-bottom:10px;}
     label{margin-right:10px;}input{width:120px;}
     #status{font-size:14px;color:#555;margin-left:10px;}
@@ -23,17 +24,297 @@
 <body>
   <div id="map"></div>
   <div id="sidebar">
-    <h1>地震速报
+    <h1>全球地震实时播报
       <span id="status"></span>
     </h1>
     <div class="setting">
-      <label>纬度：<input id="lat" type="number" step="0.0001" value="39.9042"></label>
-      <label>经度：<input id="lon" type="number" step="0.0001" value="116.4074"></label>
+      <label>纬度：<input id="lat" type="number" step="0.0001" value="25.0330"></label>
+      <label>经度：<input id="lon" type="number" step="0.0001" value="121.5654"></label>
       <button onclick="savePos()">保存</button>
       <span id="saved"></span>
+      <br>
+      <label>数据源：</label>
+      <select id="sourceSelect" onchange="fetchQuakeData()">
+        <option value="source1">中国地震速报</option>
+        <option value="source2">USGS全球地震</option>
+        <option value="source3">EMSC全球地震</option>
+        <option value="source5">香港地震台</option>
+        <option value="all">全部数据源</option>
+      </select>
     </div>
-    <div class="copy-info" id="copyInfo"></div>
+    <div class="copy-info" id="copyInfo">可点击历史地震项复制信息</div>
     <h3 id="listTitle">历史地震（最近50条）</h3>
     <div id="list"></div>
   </div>
-  <audio id="alert" src="data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABoGFiaWQBAAAAAGRhdGEAigYAADUAAAAAAABUAAAAAAAAAEQAAABk
+  <!-- 完整音频，报警音为标准的短WAV（可自定义替换） -->
+  <audio id="alert" src="data:audio/wav;base64,UklGRoABAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8A" preload="auto"></audio>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script>
+    // 经纬度距离计算（单位：公里）
+    function haversine(lat1, lon1, lat2, lon2) {
+      function toRad(x) { return x * Math.PI / 180; }
+      var R = 6371;
+      var dLat = toRad(lat2 - lat1);
+      var dLon = toRad(lon2 - lon1);
+      var a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+              Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
+              Math.sin(dLon/2) * Math.sin(dLon/2);
+      var c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+      var d = R * c;
+      return d;
+    }
+    // 烈度/震度图标和颜色
+    function getIntensityIcon(intensity) {
+      if (!intensity) return "🟦";
+      if (typeof intensity === 'number') {
+        if (intensity >= 7) return "🟥";
+        if (intensity >= 5) return "🟧";
+        if (intensity >= 3) return "🟨";
+        return "🟩";
+      }
+      if (/6|7/.test(intensity)) return "🟥";
+      if (/5/.test(intensity)) return "🟧";
+      if (/4/.test(intensity)) return "🟨";
+      if (/1|2|3/.test(intensity)) return "🟩";
+      return "🟦";
+    }
+
+    var lat = parseFloat(localStorage.getItem('lat')) || 25.0330;
+    var lon = parseFloat(localStorage.getItem('lon')) || 121.5654;
+    document.getElementById('lat').value = lat;
+    document.getElementById('lon').value = lon;
+
+    var map = L.map('map').setView([lat, lon], 5);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 18
+    }).addTo(map);
+
+    var userMarker = L.marker([lat, lon], {title: "你的位置"}).addTo(map);
+    var quakeMarkers = [];
+    var lastMaxQuakeTime = '';
+
+    function savePos() {
+      var newLat = parseFloat(document.getElementById('lat').value);
+      var newLon = parseFloat(document.getElementById('lon').value);
+      localStorage.setItem('lat', newLat);
+      localStorage.setItem('lon', newLon);
+      userMarker.setLatLng([newLat, newLon]);
+      map.setView([newLat, newLon], 5);
+      document.getElementById('saved').innerText = "已保存！";
+      setTimeout(()=>{document.getElementById('saved').innerText=''},1500);
+      fetchQuakeData();
+    }
+
+    const API_URLS = {
+      source1: "https://api.ceic.ac.cn/earthquake?limit=50", // 中国地震台网
+      source2: "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_hour.geojson", // USGS
+      source3: "https://www.seismicportal.eu/fdsnws/event/1/query?format=json&limit=50", // EMSC
+      source5: "https://data.weather.gov.hk/weatherAPI/opendata/earthquake.php?dataType=rss&lang=tc" // 香港地震台
+    };
+
+    async function fetchQuakeData() {
+      document.getElementById('status').innerText = "数据加载中...";
+      const source = document.getElementById('sourceSelect').value;
+      let quakes = [];
+
+      quakeMarkers.forEach(m => map.removeLayer(m));
+      quakeMarkers = [];
+
+      try {
+        if (source === "all") {
+          const results = await Promise.all([
+            fetch(API_URLS.source1).then(r => r.json()).catch(()=>null),
+            fetch(API_URLS.source2).then(r => r.json()).catch(()=>null),
+            fetch(API_URLS.source3).then(r => r.json()).catch(()=>null),
+            fetch(API_URLS.source5).then(r => r.text()).catch(()=>null)
+          ]);
+          if (results[0]) quakes = quakes.concat(parseSource1(results[0]));
+          if (results[1]) quakes = quakes.concat(parseSource2(results[1]));
+          if (results[2]) quakes = quakes.concat(parseSource3(results[2]));
+          if (results[3]) quakes = quakes.concat(parseSource5(results[3]));
+        } else if (API_URLS[source]) {
+          if (source === "source5") {
+            const res = await fetch(API_URLS[source]).then(r => r.text()).catch(()=>null);
+            if (res) quakes = parseSource5(res);
+          } else {
+            const res = await fetch(API_URLS[source]).then(r => r.json()).catch(()=>null);
+            if (res) {
+              if (source === "source1") quakes = parseSource1(res);
+              else if (source === "source2") quakes = parseSource2(res);
+              else if (source === "source3") quakes = parseSource3(res);
+            }
+          }
+        } else {
+          quakes = [];
+        }
+      } catch(e) {
+        quakes = [];
+      }
+      quakes.sort((a, b) => new Date(b.time) - new Date(a.time));
+      renderList(quakes);
+      addQuakeMarkers(quakes);
+      document.getElementById('status').innerText = "实时更新中";
+      triggerAlert(quakes);
+    }
+
+    function parseSource1(data) {
+      if (!data || !data.earthquakes) return [];
+      return data.earthquakes.map(e => ({
+        mag: e.magnitude,
+        lat: e.latitude,
+        lon: e.longitude,
+        place: e.location || "",
+        time: e.time || "",
+        intensity: e.intensity || "",
+        dist: (e.distance || "") + "km"
+      }));
+    }
+    function parseSource2(data) {
+      if (!data || !data.features) return [];
+      return data.features.map(f => ({
+        mag: f.properties.mag,
+        lat: f.geometry.coordinates[1],
+        lon: f.geometry.coordinates[0],
+        place: f.properties.place,
+        time: new Date(f.properties.time).toLocaleString(),
+        intensity: "",
+        dist: ""
+      }));
+    }
+    function parseSource3(data) {
+      if (!data || !data.events) return [];
+      return data.events.map(e => ({
+        mag: e.magnitude.value,
+        lat: e.latitude,
+        lon: e.longitude,
+        place: e.region || "",
+        time: e.time ? new Date(e.time).toLocaleString() : "",
+        intensity: "",
+        dist: ""
+      }));
+    }
+    function parseSource5(xmltext) {
+      let parser = new DOMParser();
+      let xml = parser.parseFromString(xmltext, "application/xml");
+      let items = xml.getElementsByTagName("item");
+      let result = [];
+      for (let i = 0; i < items.length; i++) {
+        let item = items[i];
+        let title = item.getElementsByTagName("title")[0]?.textContent || "";
+        let pubDate = item.getElementsByTagName("pubDate")[0]?.textContent || "";
+        let description = item.getElementsByTagName("description")[0]?.textContent || "";
+        let mag = /震级[:：]\s*([0-9.]+)/.exec(description)?.[1] || "";
+        let lat = /纬度[:：]\s*([0-9.]+)/.exec(description)?.[1] || null;
+        let lon = /经度[:：]\s*([0-9.]+)/.exec(description)?.[1] || null;
+        let epicenter = /震中位置[:：]\s*([^\s]+)/.exec(description)?.[1] || "";
+        let intensity = /烈度[:：]\s*([^\s]+)/.exec(description)?.[1] || "";
+        result.push({
+          mag: mag,
+          lat: lat ? parseFloat(lat) : null,
+          lon: lon ? parseFloat(lon) : null,
+          place: epicenter || title,
+          time: pubDate,
+          intensity: intensity,
+          dist: ""
+        });
+      }
+      return result;
+    }
+
+    function renderList(quakes) {
+      var userLat = parseFloat(document.getElementById('lat').value);
+      var userLon = parseFloat(document.getElementById('lon').value);
+      var list = document.getElementById('list');
+      if (!quakes || quakes.length === 0) {
+        list.innerHTML = "<div>暂无地震数据</div>";
+        return;
+      }
+      list.innerHTML = quakes.slice(0, 50).map(q => {
+        let dist = (q.lat && q.lon) ? haversine(userLat, userLon, q.lat, q.lon) : null;
+        let pWave = dist ? (dist / 6).toFixed(1) : "?";
+        let sWave = dist ? (dist / 3.5).toFixed(1) : "?";
+        let intensityIcon = getIntensityIcon(q.intensity);
+        let intensityText = q.intensity ? `烈度/震度：${q.intensity}` : "烈度/震度：未知";
+        return `<div class="item" onclick="copyToClipboard('${q.place} | M${q.mag} | ${q.time} | ${intensityText}')">
+          <span class="icon">${intensityIcon}</span>
+          <span class="mag">M${q.mag}</span>
+          <span class="dist">震中距离:${dist ? dist.toFixed(1)+'km' : '未知'}</span>
+          <span class="intensity">${intensityText}</span>
+          <div style="margin-left:34px">${q.place} | ${q.time}</div>
+          <div style="margin-left:34px">P波到达：${pWave} 秒，S波到达：${sWave} 秒</div>
+        </div>`;
+      }).join('');
+    }
+
+    function addQuakeMarkers(quakes) {
+      quakeMarkers.forEach(m => map.removeLayer(m));
+      quakeMarkers = [];
+      var userLat = parseFloat(document.getElementById('lat').value);
+      var userLon = parseFloat(document.getElementById('lon').value);
+      quakes.slice(0, 50).forEach(q => {
+        if (q.lat && q.lon) {
+          let dist = haversine(userLat, userLon, q.lat, q.lon);
+          let pWave = (dist / 6).toFixed(1);
+          let sWave = (dist / 3.5).toFixed(1);
+          let intensityIcon = getIntensityIcon(q.intensity);
+          let color =
+            intensityIcon === "🟥" ? "red" :
+            intensityIcon === "🟧" ? "orange" :
+            intensityIcon === "🟨" ? "yellow" :
+            intensityIcon === "🟩" ? "green" : "blue";
+          let marker = L.circleMarker([q.lat, q.lon], {
+            radius: Math.max(4, q.mag * 2),
+            color: color,
+            fillOpacity: 0.7
+          }).addTo(map);
+          marker.bindPopup(
+            `<b>${intensityIcon} 烈度/震度</b>: ${q.intensity || "未知"}<br>
+             <b>震中</b>: ${q.place}<br>
+             <b>时间</b>: ${q.time}<br>
+             <b>震级</b>: M${q.mag}<br>
+             <b>距离你</b>: ${dist.toFixed(1)}km<br>
+             <b>P波到达</b>: ${pWave}秒<br>
+             <b>S波到达</b>: ${sWave}秒`
+          );
+          quakeMarkers.push(marker);
+        }
+      });
+    }
+
+    function copyToClipboard(text) {
+      navigator.clipboard.writeText(text);
+      document.getElementById('copyInfo').innerText = "已复制：" + text;
+      setTimeout(()=>{document.getElementById('copyInfo').innerText="可点击历史地震项复制信息";},1500);
+    }
+
+    // 声音警报：自定义报警条件
+    function triggerAlert(quakes) {
+      if (!quakes || quakes.length === 0) return;
+      let maxQuake = quakes[0];
+      let mag = parseFloat(maxQuake.mag);
+      let dist = (maxQuake.lat && maxQuake.lon) ? haversine(
+        parseFloat(document.getElementById('lat').value),
+        parseFloat(document.getElementById('lon').value),
+        maxQuake.lat,
+        maxQuake.lon
+      ) : null;
+      let intensity = maxQuake.intensity || "";
+      // 自定义报警条件：震级≥5 且距离≤200km 或烈度/震度为6强及以上
+      let shouldAlert = (mag >= 5 && dist !== null && dist <= 200)
+        || (/6强|7/.test(intensity));
+      if (shouldAlert) {
+        if (lastMaxQuakeTime !== maxQuake.time) {
+          lastMaxQuakeTime = maxQuake.time;
+          var audio = document.getElementById('alert');
+          audio.currentTime = 0;
+          audio.play();
+        }
+      }
+    }
+
+    fetchQuakeData();
+    setInterval(fetchQuakeData, 60 * 1000);
+  </script>
+</body>
+</html>
