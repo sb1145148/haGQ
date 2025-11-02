@@ -54,8 +54,8 @@
       <span id="status"></span>
     </h1>
     <div class="setting">
-      <label>纬度：<input id="lat" type="number" step="0.0001" value="25.0330"></label>
-      <label>经度：<input id="lon" type="number" step="0.0001" value="121.5654"></label>
+      <label>纬度：<input id="lat" type="number" step="0.0001" value="0"></label>
+      <label>经度：<input id="lon" type="number" step="0.0001" value="0"></label>
       <button onclick="savePos()">保存</button>
       <span id="saved"></span>
       <br>
@@ -77,20 +77,16 @@
   <script>
     // --- 时钟相关 ---
     var clockMode = "bj"; // "bj" 北京时间(UTC+8)，"local" 本地系统时间
-
     function getBJTime() {
       let now = new Date();
-      // 北京时间 = UTC + 8
       let bj = new Date(now.getTime() + (8 - now.getTimezoneOffset()/60)*3600*1000 - now.getTimezoneOffset()*60*1000);
       return bj;
     }
-
     function formatTime(dt) {
       return dt.getFullYear() + '-' + ('0'+(dt.getMonth()+1)).slice(-2) + '-' +
         ('0'+dt.getDate()).slice(-2) + ' ' + ('0'+dt.getHours()).slice(-2) + ':' +
         ('0'+dt.getMinutes()).slice(-2) + ':' + ('0'+dt.getSeconds()).slice(-2);
     }
-
     function updateClock() {
       var label = document.getElementById('clockLabel');
       var btn = document.getElementById('clockSwitchBtn');
@@ -102,12 +98,10 @@
         btn.textContent = "切换为北京时间";
       }
     }
-
     function switchClockMode() {
       clockMode = (clockMode === "bj") ? "local" : "bj";
       updateClock();
     }
-
     setInterval(updateClock, 1000);
     updateClock();
 
@@ -138,17 +132,24 @@
       if (/1|2|3/.test(intensity)) return "🟩";
       return "🟦";
     }
-    var lat = parseFloat(localStorage.getItem('lat')) || 25.0330;
-    var lon = parseFloat(localStorage.getItem('lon')) || 121.5654;
+    // 地图初始化为全球视图
+    var lat = parseFloat(localStorage.getItem('lat')) || 0;
+    var lon = parseFloat(localStorage.getItem('lon')) || 0;
     document.getElementById('lat').value = lat;
     document.getElementById('lon').value = lon;
 
     // ------ 地图加载状态 ------
     var mapLoaded = false;
     var mapLoadingDiv = document.getElementById('mapLoading');
+    // Leaflet地图初始化（全球范围，缩放级别低保证初次加载快）
+    var map = L.map('map').setView([lat, lon], 2);
 
-    // Leaflet地图初始化
-    var map = L.map('map').setView([lat, lon], 5);
+    // 使用高德地图全球瓦片服务，支持快速加载
+    L.tileLayer('https://webrd0{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=7&x={x}&y={y}&z={z}', {
+      subdomains: ['1','2','3','4'],
+      maxZoom: 18
+    }).addTo(map);
+
     map.on('load', function() {
       mapLoaded = true;
       mapLoadingDiv.style.opacity = 0;
@@ -158,7 +159,6 @@
       mapLoadingDiv.style.opacity = 1;
       mapLoadingDiv.style.display = 'flex';
     });
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom: 18}).addTo(map);
 
     var userMarker = L.marker([lat, lon], {title: "你的位置"}).addTo(map);
     var quakeMarkers = [];
@@ -170,7 +170,7 @@
       localStorage.setItem('lat', newLat);
       localStorage.setItem('lon', newLon);
       userMarker.setLatLng([newLat, newLon]);
-      map.setView([newLat, newLon], 5);
+      map.setView([newLat, newLon], 2);
       document.getElementById('saved').innerText = "已保存！";
       setTimeout(()=>{document.getElementById('saved').innerText=''},1500);
       fetchQuakeData();
