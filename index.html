@@ -8,7 +8,7 @@
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
   <style>
     body{margin:0;font-family:Arial;background:#f2f2f2;display:flex;height:100vh;}
-    #map{flex:1;height:100%;}
+    #map{flex:1;height:100%;position:relative;}
     #sidebar{width:350px;background:#fff;box-shadow:-2px 0 5px rgba(0,0,0,.1);padding:10px;overflow-y:auto;}
     .item{background:#f7f7f7;margin:6px 0;padding:8px;border-radius:4px;cursor:pointer;display:flex;align-items:center;}
     .mag{font-weight:bold;font-size:18px;margin-right:8px;}
@@ -19,12 +19,38 @@
     label{margin-right:10px;}input{width:120px;}
     #status{font-size:14px;color:#555;margin-left:10px;}
     audio{display:none;}
+    #mapLoading {
+      position:absolute;left:0;top:0;width:100%;height:100%;background:rgba(0,0,0,.35);
+      display:flex;align-items:center;justify-content:center;z-index:1000;
+      font-size:28px;color:#fff;font-weight:bold;
+      transition:opacity 0.4s;
+    }
+    #mapClock {
+      position:absolute;right:10px;bottom:10px;background:rgba(255,255,255,0.85);
+      font-size:16px;padding:6px 18px;border-radius:8px;border:1px solid #d9d9d9;z-index:1200;
+      box-shadow:0 2px 8px rgba(0,0,0,.07);
+      display:flex;align-items:center;
+    }
+    #clockSwitchBtn {
+      margin-left:12px;background:#eee;border-radius:5px;border:1px solid #ccc;
+      font-size:14px;padding:1px 8px;cursor:pointer;
+      transition:background .2s;
+    }
+    #clockSwitchBtn:hover {
+      background:#d7eaff;
+    }
   </style>
 </head>
 <body>
-  <div id="map"></div>
+  <div id="map">
+    <div id="mapLoading">未加载完成</div>
+    <div id="mapClock">
+      <span id="clockLabel"></span>
+      <button id="clockSwitchBtn" onclick="switchClockMode()">切换为本地时间</button>
+    </div>
+  </div>
   <div id="sidebar">
-    <h1>全球地震实时播报
+    <h1>haGQ
       <span id="status"></span>
     </h1>
     <div class="setting">
@@ -46,11 +72,45 @@
     <h3 id="listTitle">历史地震（最近50条）</h3>
     <div id="list"></div>
   </div>
-  <!-- 完整音频，报警音为标准的短WAV（可自定义替换） -->
   <audio id="alert" src="data:audio/wav;base64,UklGRoABAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8A" preload="auto"></audio>
-
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script>
+    // --- 时钟相关 ---
+    var clockMode = "bj"; // "bj" 北京时间(UTC+8)，"local" 本地系统时间
+
+    function getBJTime() {
+      let now = new Date();
+      // 北京时间 = UTC + 8
+      let bj = new Date(now.getTime() + (8 - now.getTimezoneOffset()/60)*3600*1000 - now.getTimezoneOffset()*60*1000);
+      return bj;
+    }
+
+    function formatTime(dt) {
+      return dt.getFullYear() + '-' + ('0'+(dt.getMonth()+1)).slice(-2) + '-' +
+        ('0'+dt.getDate()).slice(-2) + ' ' + ('0'+dt.getHours()).slice(-2) + ':' +
+        ('0'+dt.getMinutes()).slice(-2) + ':' + ('0'+dt.getSeconds()).slice(-2);
+    }
+
+    function updateClock() {
+      var label = document.getElementById('clockLabel');
+      var btn = document.getElementById('clockSwitchBtn');
+      if (clockMode === "bj") {
+        label.textContent = "北京时间: " + formatTime(getBJTime());
+        btn.textContent = "切换为本地时间";
+      } else {
+        label.textContent = "本地时间: " + formatTime(new Date());
+        btn.textContent = "切换为北京时间";
+      }
+    }
+
+    function switchClockMode() {
+      clockMode = (clockMode === "bj") ? "local" : "bj";
+      updateClock();
+    }
+
+    setInterval(updateClock, 1000);
+    updateClock();
+
     // 经纬度距离计算（单位：公里）
     function haversine(lat1, lon1, lat2, lon2) {
       function toRad(x) { return x * Math.PI / 180; }
@@ -64,7 +124,6 @@
       var d = R * c;
       return d;
     }
-    // 烈度/震度图标和颜色
     function getIntensityIcon(intensity) {
       if (!intensity) return "🟦";
       if (typeof intensity === 'number') {
@@ -79,16 +138,27 @@
       if (/1|2|3/.test(intensity)) return "🟩";
       return "🟦";
     }
-
     var lat = parseFloat(localStorage.getItem('lat')) || 25.0330;
     var lon = parseFloat(localStorage.getItem('lon')) || 121.5654;
     document.getElementById('lat').value = lat;
     document.getElementById('lon').value = lon;
 
+    // ------ 地图加载状态 ------
+    var mapLoaded = false;
+    var mapLoadingDiv = document.getElementById('mapLoading');
+
+    // Leaflet地图初始化
     var map = L.map('map').setView([lat, lon], 5);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      maxZoom: 18
-    }).addTo(map);
+    map.on('load', function() {
+      mapLoaded = true;
+      mapLoadingDiv.style.opacity = 0;
+      setTimeout(() => { mapLoadingDiv.style.display = 'none'; }, 500);
+    });
+    map.on('loading', function() {
+      mapLoadingDiv.style.opacity = 1;
+      mapLoadingDiv.style.display = 'flex';
+    });
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom: 18}).addTo(map);
 
     var userMarker = L.marker([lat, lon], {title: "你的位置"}).addTo(map);
     var quakeMarkers = [];
@@ -117,10 +187,8 @@
       document.getElementById('status').innerText = "数据加载中...";
       const source = document.getElementById('sourceSelect').value;
       let quakes = [];
-
       quakeMarkers.forEach(m => map.removeLayer(m));
       quakeMarkers = [];
-
       try {
         if (source === "all") {
           const results = await Promise.all([
@@ -166,7 +234,7 @@
         lon: e.longitude,
         place: e.location || "",
         time: e.time || "",
-        intensity: e.intensity || "",
+        intensity: "",
         dist: (e.distance || "") + "km"
       }));
     }
@@ -235,7 +303,9 @@
         let pWave = dist ? (dist / 6).toFixed(1) : "?";
         let sWave = dist ? (dist / 3.5).toFixed(1) : "?";
         let intensityIcon = getIntensityIcon(q.intensity);
-        let intensityText = q.intensity ? `烈度/震度：${q.intensity}` : "烈度/震度：未知";
+        let intensityText = q.intensity
+          ? `烈度/震度：${q.intensity}`
+          : "烈度/震度：未知（数据源无烈度字段）";
         return `<div class="item" onclick="copyToClipboard('${q.place} | M${q.mag} | ${q.time} | ${intensityText}')">
           <span class="icon">${intensityIcon}</span>
           <span class="mag">M${q.mag}</span>
@@ -269,7 +339,7 @@
             fillOpacity: 0.7
           }).addTo(map);
           marker.bindPopup(
-            `<b>${intensityIcon} 烈度/震度</b>: ${q.intensity || "未知"}<br>
+            `<b>${intensityIcon} 烈度/震度</b>: ${q.intensity || "未知（数据源无烈度字段）"}<br>
              <b>震中</b>: ${q.place}<br>
              <b>时间</b>: ${q.time}<br>
              <b>震级</b>: M${q.mag}<br>
@@ -288,7 +358,6 @@
       setTimeout(()=>{document.getElementById('copyInfo').innerText="可点击历史地震项复制信息";},1500);
     }
 
-    // 声音警报：自定义报警条件
     function triggerAlert(quakes) {
       if (!quakes || quakes.length === 0) return;
       let maxQuake = quakes[0];
@@ -300,7 +369,6 @@
         maxQuake.lon
       ) : null;
       let intensity = maxQuake.intensity || "";
-      // 自定义报警条件：震级≥5 且距离≤200km 或烈度/震度为6强及以上
       let shouldAlert = (mag >= 5 && dist !== null && dist <= 200)
         || (/6强|7/.test(intensity));
       if (shouldAlert) {
