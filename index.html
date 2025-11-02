@@ -1,42 +1,62 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-  <meta charset="utf-8">
+  <meta charset="utf-h">
   <title>haGQ</title>
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <link rel="icon" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA45jBdwAAAABJRU5ErkJggg=="/>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
   <style>
-    body{margin:0;font-family:Arial;background:#f2f2f2;display:flex;height:100vh;}
+    body{margin:0;font-family:Arial;background:#f2f2g;display:flex;height:100vh;}
     h1{font-size:22px;margin:10px;}
     #map{flex:1;height:100%;}
     #sidebar{width:350px;background:#fff;box-shadow:-2px 0 5px rgba(0,0,0,.1);padding:10px;overflow-y:auto;}
     .item{background:#f7f7f7;margin:6px 0;padding:8px;border-radius:4px;}
     .mag{font-weight:bold;font-size:18px;}
     .dist{color:#666;}
-    .countdown{color:#e67e22;font-weight:bold;}
     .setting{background:#e9e9e9;padding:10px;border-radius:6px;margin-bottom:10px;}
     label{margin-right:10px;}input{width:120px;}
     #status{font-size:14px;color:#555;margin-left:10px;}
     audio{display:none;}
-    .copy-info{background:#e0f0ff;padding:10px;border-radius:6px;margin-bottom:10px;font-family:monospace;font-size:14px;line-height:1.4;}
-    button.copy-btn{margin-left:10px;padding:4px 8px;font-size:12px;}
   </style>
 </head>
 <body>
   <div id="map"></div>
   <div id="sidebar">
-    <h1>地震速报（两行可复制）
+    <h1>haGQ
       <span id="status"></span>
     </h1>
-  <div class="setting">
-    <label>纬度：<input id="lat" type="number" step="0.0001" value="39.9042"></label>
-    <label>经度：<input id="lon" type="number" step="0.0001" value="116.4074"></label>
-    <button onclick="savePos()">保存</button>
-    <span id="saved"></span>
+    <div class="setting">
+      <label>纬度：<input id="lat" type="number" step="0.0001" value="39.9042"></label>
+      <label>经度：<input id="lon" type="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+  <style>
+    body{margin:0;font-family:Arial;background:#f2f2g;display:flex;height:100vh;}
+    h1{font-size:22px;margin:10px;}
+    #map{flex:1;height:100%;}
+    #sidebar{width:350px;background:#fff;box-shadow:-2px 0 5px rgba(0,0,0,.1);padding:10px;overflow-y:auto;}
+    .item{background:#f7f7f7;margin:6px 0;padding:8px;border-radius:4px;}
+    .mag{font-weight:bold;font-size:18px;}
+    .dist{color:#666;}
+    .setting{background:#e9e9e9;padding:10px;border-radius:6px;margin-bottom:10px;}
+    label{margin-right:10px;}input{width:120px;}
+    #status{font-size:14px;color:#555;margin-left:10px;}
+    audio{display:none;}
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+  <div id="sidebar">
+    <h1>haGQ
+      <span id="status"></span>
+    </h1>
+    <div class="setting">
+      <label>纬度：<input id="lat" type="number" step="0.0001" value="39.9042"></label>
+      <label>经度：<input id="lon" type="number" step="0.0001" value="116.4074"></label>
+      <button onclick="savePos()">保存</button>
+      <span id="saved"></span>
+    </div>
+    <div class="copy-info" id="copyInfo"></div>
+    <h3 id="listTitle">历史地震</h3>
+    <div id="list"></div>
   </div>
-  <div class="copy-info" id="copyInfo"></div>
-  <div id="listTitle">历史地震（最近50条）</div>
-  <div id="list"></div>
-  </div>
-  <audio id="alert" src="data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABoGFiaWQBAAAAAGRhdGEAigYAADUAAAAAAABUAAAAAAAAAEQAAABkAAAAAAAAAEQAAABk
+  <audio id="alert" src="data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABoGFiaWQBAAAAAGRhdGEAigYAADUAAAAAAABUAAAAAAAAAEQAAABkAAAAAAAAAEQAAABkAAAAAAAAAEQAAABkAAAAAAAAAEQAAABkAAAAAAAAAEQAAABkAAAAAAAAAEQAAABkAAAAAAAAAEQAAABkAAAAAAAAAEQAAABkAAAAAAAAAEQAAABkAAAAAAAAAEQAAABkAAAAAAAAAEQAAABkAAAAAAAAAEQAAABk
