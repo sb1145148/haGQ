@@ -62,6 +62,7 @@
         <option value="source2">USGS全球地震</option>
         <option value="source3">EMSC全球地震</option>
         <option value="source5">香港地震台</option>
+        <option value="source6">日本地震台</option>
         <option value="all">全部数据源</option>
       </select>
     </div>
@@ -176,7 +177,8 @@
       source1: "https://api.ceic.ac.cn/earthquake?limit=50", // 中国地震台网
       source2: "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_hour.geojson", // USGS
       source3: "https://www.seismicportal.eu/fdsnws/event/1/query?format=json&limit=50", // EMSC
-      source5: "https://data.weather.gov.hk/weatherAPI/opendata/earthquake.php?dataType=rss&lang=tc" // 香港地震台
+      source5: "https://data.weather.gov.hk/weatherAPI/opendata/earthquake.php?dataType=rss&lang=tc", // 香港地震台
+      source6: "https://www.data.jma.go.jp/developer/xml/feed/eqvol.xml" // 日本气象厅地震RSS
     };
 
     let quakeHistory = [];
@@ -193,16 +195,18 @@
             fetch(API_URLS.source1).then(r => r.json()).catch(()=>null),
             fetch(API_URLS.source2).then(r => r.json()).catch(()=>null),
             fetch(API_URLS.source3).then(r => r.json()).catch(()=>null),
-            fetch(API_URLS.source5).then(r => r.text()).catch(()=>null)
+            fetch(API_URLS.source5).then(r => r.text()).catch(()=>null),
+            fetch(API_URLS.source6).then(r => r.text()).catch(()=>null)
           ]);
           if (results[0]) quakes = quakes.concat(parseSource1(results[0]));
           if (results[1]) quakes = quakes.concat(parseSource2(results[1]));
           if (results[2]) quakes = quakes.concat(parseSource3(results[2]));
           if (results[3]) quakes = quakes.concat(parseSource5(results[3]));
+          if (results[4]) quakes = quakes.concat(parseSource6(results[4]));
         } else if (API_URLS[source]) {
-          if (source === "source5") {
+          if (source === "source5" || source === "source6") {
             const res = await fetch(API_URLS[source]).then(r => r.text()).catch(()=>null);
-            if (res) quakes = parseSource5(res);
+            if (res) quakes = source==="source5"?parseSource5(res):parseSource6(res);
           } else {
             const res = await fetch(API_URLS[source]).then(r => r.json()).catch(()=>null);
             if (res) {
@@ -283,6 +287,34 @@
           place: epicenter || title,
           time: pubDate,
           intensity: intensity,
+          dist: ""
+        });
+      }
+      return result;
+    }
+    // 日本气象厅地震台
+    function parseSource6(xmltext) {
+      let parser = new DOMParser();
+      let xml = parser.parseFromString(xmltext, "application/xml");
+      let items = xml.getElementsByTagName("item");
+      let result = [];
+      for (let i = 0; i < items.length; i++) {
+        let item = items[i];
+        let title = item.getElementsByTagName("title")[0]?.textContent || "";
+        let pubDate = item.getElementsByTagName("pubDate")[0]?.textContent || "";
+        let description = item.getElementsByTagName("description")[0]?.textContent || "";
+        let mag = /Ｍ([0-9.]+)/.exec(description)?.[1] || "";
+        // 从描述中推测震中（如有，或用title）
+        let epicenter = /震源地：([^（\s]+)/.exec(description)?.[1] || title.replace(/【.*?】/,"").replace(/.*地震情報\s*/,"").trim();
+        // 纬度/经度通常在enclosure标签的url里（KML），这里不做KML解析，后续可补充
+        // 只显示地名和震级
+        result.push({
+          mag: mag,
+          lat: null,
+          lon: null,
+          place: epicenter,
+          time: pubDate,
+          intensity: "",
           dist: ""
         });
       }
