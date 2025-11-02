@@ -4,7 +4,6 @@
   <meta charset="utf-8">
   <title>haGQ</title>
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <link rel="icon" href="https://upload.wikimedia.org/wikipedia/commons/7/73/Emojione_1F4A5.svg" type="image/svg+xml"/>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
   <style>
     body{margin:0;font-family:Arial;background:#f2f2f2;display:flex;height:100vh;}
@@ -37,19 +36,6 @@
       transition:background .2s;
     }
     #clockSwitchBtn:hover {background:#d7eaff;}
-    #replayBar {
-      margin:10px 0 5px 0;
-      display:flex;align-items:center;gap:10px;
-    }
-    #replayBtn,#pauseBtn,#resetBtn {
-      background:#e9e9e9;border:1px solid #bbb;
-      padding:2px 14px;border-radius:6px;cursor:pointer;font-size:15px;
-      margin-right:4px;
-      transition:background .2s;
-    }
-    #replayBtn:hover,#pauseBtn:hover,#resetBtn:hover {background:#d7eaff;}
-    #replayProgress {flex:1;height:6px;background:#f2f2f2;border-radius:3px;margin:0 8px;position:relative;}
-    #replayProgressBar {height:6px;background:#4488ff;border-radius:3px;position:absolute;left:0;top:0;}
   </style>
 </head>
 <body>
@@ -65,8 +51,8 @@
       <span id="status"></span>
     </h1>
     <div class="setting">
-      <label>纬度：<input id="lat" type="number" step="0.0001" value="0"></label>
-      <label>经度：<input id="lon" type="number" step="0.0001" value="0"></label>
+      <label>纬度：<input id="lat" type="number" step="0.0001" value="32"></label>
+      <label>经度：<input id="lon" type="number" step="0.0001" value="110"></label>
       <button onclick="savePos()">保存</button>
       <span id="saved"></span>
       <br>
@@ -79,12 +65,6 @@
         <option value="all">全部数据源</option>
       </select>
     </div>
-    <div id="replayBar">
-      <button id="replayBtn" onclick="startReplay()">回放</button>
-      <button id="pauseBtn" onclick="pauseReplay()" disabled>暂停</button>
-      <button id="resetBtn" onclick="resetReplay()" disabled>重播</button>
-      <div id="replayProgress"><div id="replayProgressBar"></div></div>
-    </div>
     <div class="copy-info" id="copyInfo">可点击历史地震项复制信息</div>
     <h3 id="listTitle">历史地震（最近50条）</h3>
     <div id="list"></div>
@@ -92,7 +72,7 @@
   <audio id="alert" src="data:audio/wav;base64,UklGRoABAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8A" preload="auto"></audio>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script>
-    // --- 时钟相关 ---
+    // 时钟相关
     var clockMode = "bj";
     function getBJTime() {
       let now = new Date();
@@ -122,7 +102,7 @@
     setInterval(updateClock, 1000);
     updateClock();
 
-    // 经纬度距离计算（单位：公里）
+    // 经纬度距离
     function haversine(lat1, lon1, lat2, lon2) {
       function toRad(x) { return x * Math.PI / 180; }
       var R = 6371;
@@ -150,24 +130,26 @@
       return "🟦";
     }
 
-    var lat = parseFloat(localStorage.getItem('lat')) || 0;
-    var lon = parseFloat(localStorage.getItem('lon')) || 0;
+    var lat = parseFloat(localStorage.getItem('lat')) || 32;
+    var lon = parseFloat(localStorage.getItem('lon')) || 110;
     document.getElementById('lat').value = lat;
     document.getElementById('lon').value = lon;
 
     var mapLoaded = false;
     var mapLoadingDiv = document.getElementById('mapLoading');
-    var map = L.map('map').setView([lat, lon], 2);
+    var map = L.map('map').setView([lat, lon], 4);
 
-    // 极简线条地图
-    L.tileLayer('https://tiles.stadiamaps.com/tiles/alidade_smooth/{z}/{x}/{y}.png', {
-      maxZoom: 18
+    // 高德简约全球路网底图 style=8
+    L.tileLayer('https://webrd0{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=8&x={x}&y={y}&z={z}', {
+      subdomains: ['1','2','3','4'],
+      maxZoom: 18,
+      attribution: '© 高德地图'
     }).addTo(map);
 
     map.on('load', function() {
       mapLoaded = true;
       mapLoadingDiv.style.opacity = 0;
-      setTimeout(() => { mapLoadingDiv.style.display = 'none'; }, 500);
+      setTimeout(()=>{mapLoadingDiv.style.display='none';},400);
     });
     map.on('loading', function() {
       mapLoadingDiv.style.opacity = 1;
@@ -184,7 +166,7 @@
       localStorage.setItem('lat', newLat);
       localStorage.setItem('lon', newLon);
       userMarker.setLatLng([newLat, newLon]);
-      map.setView([newLat, newLon], 2);
+      map.setView([newLat, newLon], 4);
       document.getElementById('saved').innerText = "已保存！";
       setTimeout(()=>{document.getElementById('saved').innerText=''},1500);
       fetchQuakeData();
@@ -197,7 +179,7 @@
       source5: "https://data.weather.gov.hk/weatherAPI/opendata/earthquake.php?dataType=rss&lang=tc" // 香港地震台
     };
 
-    let quakeHistory = []; // 用于回放
+    let quakeHistory = [];
 
     async function fetchQuakeData() {
       document.getElementById('status').innerText = "数据加载中...";
@@ -235,13 +217,12 @@
       } catch(e) {
         quakes = [];
       }
-      quakes.sort((a, b) => new Date(a.time) - new Date(b.time)); //回放用：时间升序
-      quakeHistory = quakes.slice(0, 50); // 仅保留50条
+      quakes.sort((a, b) => new Date(a.time) - new Date(b.time));
+      quakeHistory = quakes.slice(0, 50);
       renderList(quakeHistory);
       addQuakeMarkers(quakeHistory);
       document.getElementById('status').innerText = "实时更新中";
       triggerAlert(quakeHistory);
-      resetReplay(); //每次加载新数据时重置回放
     }
 
     function parseSource1(data) {
@@ -358,7 +339,7 @@
           }).addTo(map);
           marker.bindPopup(
             `<b>${intensityIcon} 烈度/震度</b>: ${q.intensity || "未知（数据源无烈度字段）"}<br>
-             <b>震中</b>: ${q.place}<br>
+             <b>地名</b>: ${q.place}<br>
              <b>时间</b>: ${q.time}<br>
              <b>震级</b>: M${q.mag}<br>
              <b>距离你</b>: ${dist.toFixed(1)}km<br>
@@ -397,70 +378,6 @@
           audio.play();
         }
       }
-    }
-
-    // --- 回放相关 ---
-    let replayTimer = null;
-    let replayIdx = 0;
-    let replayMarkers = [];
-    let replaySpeed = 500; // ms per quake
-
-    function startReplay() {
-      if (!quakeHistory || quakeHistory.length === 0) return;
-      disableReplayBtns(false, true, false);
-      clearReplay();
-      replayIdx = 0;
-      replayStep();
-    }
-    function replayStep() {
-      if (replayIdx >= quakeHistory.length) {
-        disableReplayBtns(false, false, true);
-        return;
-      }
-      let q = quakeHistory[replayIdx];
-      let color = getIntensityIcon(q.intensity)==="🟥"?"red":getIntensityIcon(q.intensity)==="🟧"?"orange":getIntensityIcon(q.intensity)==="🟨"?"yellow":getIntensityIcon(q.intensity)==="🟩"?"green":"blue";
-      let marker = L.circleMarker([q.lat, q.lon], {
-        radius: Math.max(4, q.mag * 2),
-        color: color,
-        fillOpacity: 0.85
-      }).addTo(map);
-      marker.bindPopup(
-        `<b>${getIntensityIcon(q.intensity)} 烈度/震度</b>: ${q.intensity || "未知（数据源无烈度字段）"}<br>
-         <b>地名</b>: ${q.place}<br>
-         <b>时间</b>: ${q.time}<br>
-         <b>震级</b>: M${q.mag}`
-      );
-      replayMarkers.push(marker);
-      updateReplayBar();
-      replayIdx++;
-      replayTimer = setTimeout(replayStep, replaySpeed);
-    }
-    function pauseReplay() {
-      if (replayTimer) {
-        clearTimeout(replayTimer); replayTimer = null;
-        disableReplayBtns(true, false, true);
-      }
-    }
-    function resetReplay() {
-      pauseReplay();
-      clearReplay();
-      replayIdx = 0;
-      updateReplayBar();
-      disableReplayBtns(false, false, false);
-    }
-    function clearReplay() {
-      replayMarkers.forEach(m=>map.removeLayer(m));
-      replayMarkers = [];
-    }
-    function disableReplayBtns(replay, pause, reset) {
-      document.getElementById('replayBtn').disabled = replay;
-      document.getElementById('pauseBtn').disabled = pause;
-      document.getElementById('resetBtn').disabled = reset;
-    }
-    function updateReplayBar() {
-      let bar = document.getElementById('replayProgressBar');
-      let total = quakeHistory.length || 1;
-      bar.style.width = (replayIdx/total*100) + '%';
     }
 
     fetchQuakeData();
