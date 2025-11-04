@@ -5,10 +5,14 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>haGQ-全球地震监测</title>
     
-    <!-- 预连接关键外部源 -->
-    <link rel="preconnect" href="https://unpkg.com">
-    <link rel="preconnect" href="https://earthquake.usgs.gov">
-    <link rel="preconnect" href="https://tile.openstreetmap.org">
+    <!-- DNS预解析 -->
+    <link rel="dns-prefetch" href="https://unpkg.com">
+    <link rel="dns-prefetch" href="https://earthquake.usgs.gov">
+    <link rel="dns-prefetch" href="https://tile.openstreetmap.org">
+    <link rel="dns-prefetch" href="https://api.oioweb.cn">
+    
+    <!-- Edge专用优化 -->
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
     
     <!-- 关键CSS内联 -->
     <style>
@@ -488,6 +492,46 @@
             justify-content: center;
             font-size: 18px;
         }
+
+        /* 分页控件 */
+        .pagination {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 15px;
+            padding: 0 10px;
+        }
+        
+        .pagination button {
+            padding: 6px 12px;
+            border: 1px solid #ddd;
+            background: white;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        
+        .pagination button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        
+        .pagination-info {
+            font-size: 12px;
+            color: #666;
+            align-self: center;
+        }
+        
+        /* Edge特定优化 */
+        @media all and (-ms-high-contrast: none), (-ms-high-contrast: active) {
+            /* IE/Edge特定样式修复 */
+            .quake-item {
+                min-height: 80px;
+            }
+            
+            .skeleton {
+                animation: none;
+                background: #f0f0f0;
+            }
+        }
     </style>
     
     <!-- 非关键CSS异步加载 -->
@@ -499,7 +543,8 @@
     
     <div id="map">
         <div class="map-loading" id="mapLoading">
-            地图加载中...
+            <div>🌍 正在快速启动地震监测系统...</div>
+            <div style="font-size: 12px; margin-top: 8px; color: #ccc;" id="loadingProgress">初始化核心模块</div>
         </div>
         
         <div class="controls">
@@ -629,7 +674,48 @@
     </audio>
 
     <script>
-        // 应用状态管理
+        // Edge浏览器检测和优化
+        const isEdge = /Edg/.test(navigator.userAgent);
+        
+        // 应用状态和配置
+        const AppConfig = {
+            // 性能配置 - 针对Edge优化
+            PERFORMANCE: {
+                CACHE_TTL: isEdge ? 60000 : 30000, // Edge中缓存时间更长
+                MAX_MARKERS: 100,
+                CHUNK_SIZE: 50,
+                TIMEOUT: 10000, // Edge中增加超时时间
+                RETRY_COUNT: 3   // Edge中增加重试次数
+            },
+            // 数据源配置
+            DATA_SOURCES: {
+                usgs: {
+                    url: 'https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_day.geojson',
+                    fallback: true
+                },
+                cenc: {
+                    url: 'https://api.oioweb.cn/api/earthquake/list',
+                    fallback: true
+                },
+                emsc: {
+                    url: 'https://www.seismicportal.eu/fdsnws/event/1/query?format=json&minmag=2.5&limit=100',
+                    fallback: false
+                },
+                jma: {
+                    url: 'https://api.p2pquake.net/v2/jma/earthquakes?limit=50',
+                    fallback: false
+                }
+            },
+            // 地图配置
+            MAP: {
+                center: [39.9042, 116.4074],
+                zoom: 3,
+                minZoom: 1,
+                maxZoom: 18
+            }
+        };
+
+        // 核心状态管理
         const AppState = {
             map: null,
             quakes: [],
@@ -638,8 +724,6 @@
             isStreaming: true,
             userLocation: { lat: 39.9042, lng: 116.4074 },
             currentLayer: null,
-            geoJsonLayers: {},
-            lastQuakeIds: new Set(),
             dataCache: null,
             cacheTimestamp: 0,
             currentDataSource: 'cenc',
@@ -651,13 +735,17 @@
                 warningDistance: 300,
                 showCalculations: true
             },
-            CACHE_TTL: 30000,
-            performanceMetrics: {
-                loadStartTime: 0,
+            performance: {
+                startTime: performance.now(),
+                metrics: {
+                    mapLoad: 0,
+                    dataLoad: 0,
+                    renderTime: 0
+                },
                 cacheHits: 0,
                 totalRequests: 0
             },
-            // 新增：数据分块管理
+            // 数据分块管理
             dataChunks: new Map(),
             currentChunk: 0,
             chunksPerPage: 50
@@ -691,228 +779,154 @@
             showDebugInfo(text);
         }
 
+        // 进度更新
+        function updateProgress(message) {
+            const progressEl = document.getElementById('loadingProgress');
+            if (progressEl) {
+                progressEl.textContent = message;
+            }
+            console.log('Progress:', message);
+        }
+
         // 性能监控
         function updatePerformanceMetrics(loadTime) {
-            const memory = performance.memory ? (performance.memory.usedJSHeapSize / 1048576).toFixed(2) : 'N/A';
-            const hitRate = AppState.performanceMetrics.totalRequests > 0 ? 
-                Math.round((AppState.performanceMetrics.cacheHits / AppState.performanceMetrics.totalRequests) * 100) : 0;
+            // Edge中performance.memory不可用，使用备用方案
+            let memory = 'N/A';
+            if (performance.memory) {
+                memory = (performance.memory.usedJSHeapSize / 1048576).toFixed(2) + 'MB';
+            }
+            
+            const hitRate = AppState.performance.totalRequests > 0 ? 
+                Math.round((AppState.performance.cacheHits / AppState.performance.totalRequests) * 100) : 0;
             
             document.getElementById('loadTime').textContent = `${loadTime}ms`;
-            document.getElementById('memoryUsage').textContent = `${memory}MB`;
+            document.getElementById('memoryUsage').textContent = memory;
             document.getElementById('cacheHitRate').textContent = `${hitRate}%`;
         }
 
-        // 使用异步函数控制初始化流程
-        async function initApp() {
-            showDebugInfo('开始初始化应用');
-            AppState.performanceMetrics.loadStartTime = performance.now();
+        // 错误处理 - 针对Edge优化
+        function handleError(error, context) {
+            console.error(`Error in ${context}:`, error);
+            updateProgress(`遇到问题: ${error.message}`);
             
-            try {
-                // 并行初始化地图和加载数据
-                const [map, earthquakeData] = await Promise.all([
-                    initMap(),
-                    loadEarthquakeData()
-                ]);
-                
-                AppState.map = map;
-                processEarthquakeData(earthquakeData);
-                document.getElementById('mapLoading').style.display = 'none';
-                
-                const loadTime = Math.round(performance.now() - AppState.performanceMetrics.loadStartTime);
-                updatePerformanceMetrics(loadTime);
-                
-            } catch (error) {
-                console.error('初始化失败:', error);
-                document.getElementById('mapLoading').textContent = '加载失败，请刷新或检查网络';
-            }
-        }
-
-        // 地图初始化函数 - 返回Promise
-        function initMap() {
-            return new Promise((resolve, reject) => {
-                // 动态加载Leaflet库
-                const script = document.createElement('script');
-                script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
-                script.async = true;
-                
-                script.onload = () => {
-                    try {
-                        showDebugInfo('Leaflet库加载完成，开始初始化地图');
-                        // 初始化地图
-                        const map = L.map('map', {
-                            preferCanvas: true,
-                            zoomControl: false,
-                            center: [AppState.userLocation.lat, AppState.userLocation.lng],
-                            zoom: 3,
-                            minZoom: 1,
-                            maxZoom: 18,
-                            fadeAnimation: false,
-                            markerZoomAnimation: false
-                        });
-
-                        // 异步加载地图瓦片
-                        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-                            attribution: '&copy; OpenStreetMap contributors',
-                            // 新增：瓦片缓存优化
-                            maxZoom: 18,
-                            minZoom: 1,
-                            maxNativeZoom: 19
-                        }).addTo(map);
-
-                        // 用户位置标记
-                        updateUserMarker(map);
-                        
-                        showDebugInfo('地图初始化完成');
-                        resolve(map);
-                    } catch (error) {
-                        reject(error);
+            // Edge中更友好的错误提示
+            setTimeout(() => {
+                const loadingEl = document.getElementById('mapLoading');
+                if (loadingEl && loadingEl.style.display !== 'none') {
+                    let errorMessage = error.message || '网络连接可能不稳定';
+                    
+                    // Edge特定错误提示
+                    if (error.message.includes('Failed to fetch') || error.message.includes('NetworkError')) {
+                        errorMessage = '网络连接问题，请检查网络设置或尝试刷新页面';
+                    } else if (error.message.includes('abort')) {
+                        errorMessage = '请求超时，请检查网络连接';
                     }
-                };
-                
-                script.onerror = () => reject(new Error('加载Leaflet库失败'));
-                document.head.appendChild(script);
-            });
-        }
-
-        // 更新用户位置标记
-        function updateUserMarker(map) {
-            if (AppState.userMarker) {
-                map.removeLayer(AppState.userMarker);
-            }
-            
-            AppState.userMarker = L.marker([AppState.userLocation.lat, AppState.userLocation.lng])
-                .addTo(map)
-                .bindPopup('你的位置');
-                
-            showDebugInfo(`用户位置标记更新: ${AppState.userLocation.lat}, ${AppState.userLocation.lng}`);
-        }
-
-        // 侧边栏控制
-        document.getElementById('collapseBtn').addEventListener('click', function() {
-            document.getElementById('sidebar').classList.add('sidebar-collapsed');
-            document.getElementById('sidebarToggle').style.display = 'flex';
-        });
-
-        document.getElementById('sidebarToggle').addEventListener('click', function() {
-            document.getElementById('sidebar').classList.remove('sidebar-collapsed');
-            this.style.display = 'none';
-        });
-
-        // 响应式侧边栏
-        function checkScreenSize() {
-            if (window.innerWidth < 768) {
-                document.getElementById('sidebar').classList.add('sidebar-collapsed');
-                document.getElementById('sidebarToggle').style.display = 'flex';
-            } else {
-                document.getElementById('sidebar').classList.remove('sidebar-collapsed');
-                document.getElementById('sidebarToggle').style.display = 'none';
-            }
-        }
-
-        window.addEventListener('resize', checkScreenSize);
-        checkScreenSize();
-
-        // 加载测算设置
-        function loadCalculationSettings() {
-            const pWaveSpeed = parseFloat(document.getElementById('pWaveSpeed').value);
-            const sWaveSpeed = parseFloat(document.getElementById('sWaveSpeed').value);
-            const warningDistance = parseFloat(document.getElementById('warningDistance').value);
-            const showCalculations = document.getElementById('showCalculations').checked;
-            
-            AppState.calculationSettings = {
-                pWaveSpeed: isNaN(pWaveSpeed) ? 6.0 : pWaveSpeed,
-                sWaveSpeed: isNaN(sWaveSpeed) ? 3.5 : sWaveSpeed,
-                warningDistance: isNaN(warningDistance) ? 300 : warningDistance,
-                showCalculations: showCalculations
-            };
-            
-            showDebugInfo('测算设置已加载');
-        }
-
-        // 切换高级设置显示
-        function toggleAdvancedSettings() {
-            const advancedSettings = document.getElementById('advancedSettings');
-            advancedSettings.style.display = advancedSettings.style.display === 'none' ? 'block' : 'none';
-        }
-
-        // 切换地图样式
-        function changeMapStyle(style) {
-            showDebugInfo('切换地图样式: ' + style);
-            
-            // 清除所有图层
-            AppState.map.eachLayer((layer) => {
-                if (layer instanceof L.TileLayer) {
-                    AppState.map.removeLayer(layer);
+                    
+                    loadingEl.innerHTML = `
+                        <div>⚠️ 加载遇到问题</div>
+                        <div style="font-size: 12px; margin-top: 8px; color: #ccc;">
+                            ${errorMessage}
+                        </div>
+                        <button onclick="window.location.reload()" style="margin-top: 10px; padding: 5px 10px; background: #e74c3c; color: white; border: none; border-radius: 4px; cursor: pointer;">
+                            重新加载
+                        </button>
+                        ${isEdge ? '<div style="font-size: 10px; margin-top: 5px; color: #999;">Edge浏览器用户: 如持续遇到问题，请尝试清除浏览器缓存</div>' : ''}
+                    `;
                 }
-            });
+            }, 1000);
+        }
+
+        // 资源加载器 - 针对Edge优化
+        const ResourceLoader = {
+            loaded: new Set(),
             
-            // 添加新图层
-            let tileLayer;
-            switch(style) {
-                case 'simple':
-                    tileLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-                        attribution: '&copy; OpenStreetMap contributors'
-                    });
-                    break;
-                case 'topo':
-                    tileLayer = L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {
-                        attribution: '&copy; OpenTopoMap contributors'
-                    });
-                    break;
-                case 'dark':
-                    tileLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-                        attribution: '&copy; CARTO'
-                    });
-                    break;
+            loadScript(src) {
+                return new Promise((resolve, reject) => {
+                    if (this.loaded.has(src)) {
+                        resolve();
+                        return;
+                    }
+                    
+                    const script = document.createElement('script');
+                    script.src = src;
+                    script.async = true;
+                    
+                    // Edge中增加更多错误处理
+                    let loadTimeout;
+                    if (isEdge) {
+                        loadTimeout = setTimeout(() => {
+                            reject(new Error(`加载脚本超时: ${src}`));
+                        }, 15000);
+                    }
+                    
+                    script.onload = () => {
+                        if (isEdge) clearTimeout(loadTimeout);
+                        this.loaded.add(src);
+                        resolve();
+                    };
+                    
+                    script.onerror = () => {
+                        if (isEdge) clearTimeout(loadTimeout);
+                        reject(new Error(`加载脚本失败: ${src}`));
+                    };
+                    
+                    document.head.appendChild(script);
+                });
             }
-            
-            tileLayer.addTo(AppState.map);
-            
-            // 重新添加用户标记和地震标记
-            updateUserMarker(AppState.map);
-            addEarthquakeMarkers(AppState.quakes);
-            
-            updateStatus(`已切换到 ${style} 地图`);
-        }
+        };
 
-        // 切换数据源
-        function changeDataSource(source) {
-            // 更新按钮状态
-            document.querySelectorAll('.data-source-btn').forEach(btn => {
-                btn.classList.remove('active');
-            });
-            event.target.classList.add('active');
+        // 数据获取器 - 针对Edge优化
+        const DataFetcher = {
+            async fetchWithRetry(url, options = {}, retries = AppConfig.PERFORMANCE.RETRY_COUNT) {
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), AppConfig.PERFORMANCE.TIMEOUT);
+                
+                try {
+                    // Edge中增加缓存控制头
+                    const fetchOptions = {
+                        ...options,
+                        signal: controller.signal,
+                        cache: 'no-cache' // Edge中强制不使用缓存
+                    };
+                    
+                    // 添加Edge特定的请求头
+                    if (isEdge) {
+                        fetchOptions.headers = {
+                            ...fetchOptions.headers,
+                            'Cache-Control': 'no-cache',
+                            'Pragma': 'no-cache'
+                        };
+                    }
+                    
+                    const response = await fetch(url, fetchOptions);
+                    
+                    clearTimeout(timeoutId);
+                    
+                    if (!response.ok) {
+                        throw new Error(`HTTP ${response.status}`);
+                    }
+                    
+                    return await response.json();
+                } catch (error) {
+                    clearTimeout(timeoutId);
+                    
+                    if (retries > 0 && !error.message.includes('abort')) {
+                        console.log(`重试中... 剩余 ${retries} 次尝试`);
+                        // Edge中增加重试延迟
+                        if (isEdge) {
+                            await new Promise(resolve => setTimeout(resolve, 1000));
+                        }
+                        return this.fetchWithRetry(url, options, retries - 1);
+                    }
+                    
+                    throw error;
+                }
+            },
             
-            AppState.currentDataSource = source;
-            AppState.dataCache = null;
-            AppState.dataChunks.clear();
-            AppState.currentChunk = 0;
-            updateStatus(`切换到数据源: ${source}`);
-            loadEarthquakeData();
-        }
-
-        // 保存当前位置
-        function saveCurrentLocation() {
-            const lat = parseFloat(document.getElementById('latInput').value);
-            const lng = parseFloat(document.getElementById('lngInput').value);
-            
-            if (isNaN(lat) || isNaN(lng)) {
-                alert('请输入有效的经纬度坐标');
-                return;
-            }
-            
-            AppState.userLocation.lat = lat;
-            AppState.userLocation.lng = lng;
-            
-            updateUserMarker(AppState.map);
-            AppState.map.setView([lat, lng], 5);
-            loadEarthquakeData();
-            
-            showDebugInfo(`位置已保存: ${lat}, ${lng}`);
-            alert('位置已保存！');
-        }
-
-        // 获取当前位置
-        function getCurrentLocation() {
-            if (!navigator.geolocation) {
-     
+            async getEarthquakeData(source) {
+                const config = AppConfig.DATA_SOURCES[source];
+                if (!config) {
+                    throw new Error(`未知数据源: ${source}`);
+                }
+                
+                updateProgress(`正在从${source.toUpperCase()}获取数据.
