@@ -5,12 +5,12 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>haGQ-全球地震监测</title>
     
-    <!-- 预连接关键外部源，加速后续请求 -->
+    <!-- 预连接关键外部源 -->
     <link rel="preconnect" href="https://unpkg.com">
     <link rel="preconnect" href="https://earthquake.usgs.gov">
     <link rel="preconnect" href="https://tile.openstreetmap.org">
     
-    <!-- 关键CSS内联，减少渲染阻塞 -->
+    <!-- 关键CSS内联 -->
     <style>
         :root {
             --primary-color: #3498db;
@@ -48,6 +48,13 @@
             flex-direction: column;
             height: 100%;
             z-index: 1000;
+            transition: transform 0.3s ease;
+        }
+        
+        .sidebar-collapsed {
+            transform: translateX(100%);
+            width: 0;
+            overflow: hidden;
         }
         
         .sidebar-header {
@@ -55,6 +62,23 @@
             border-bottom: 1px solid #eee;
             background: var(--dark-color);
             color: white;
+            position: relative;
+        }
+        
+        .collapse-btn {
+            position: absolute;
+            right: 15px;
+            top: 15px;
+            background: rgba(255,255,255,0.2);
+            border: none;
+            color: white;
+            width: 24px;
+            height: 24px;
+            border-radius: 3px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
         }
         
         .sidebar-content {
@@ -420,6 +444,50 @@
             border-top: 1px solid #ddd;
             display: none;
         }
+        
+        /* 性能指标面板 */
+        .performance-panel {
+            background: #f0f7ff;
+            border-left: 3px solid #3498db;
+            padding: 8px;
+            margin: 10px 0;
+            border-radius: 4px;
+            font-size: 11px;
+        }
+        
+        .performance-item {
+            display: flex;
+            justify-content: space-between;
+            margin: 2px 0;
+        }
+        
+        .performance-label {
+            color: #2c3e50;
+        }
+        
+        .performance-value {
+            font-weight: bold;
+            color: #3498db;
+        }
+        
+        /* 侧边栏切换按钮 */
+        .sidebar-toggle {
+            position: absolute;
+            top: 15px;
+            right: 15px;
+            z-index: 999;
+            background: white;
+            border: none;
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+            cursor: pointer;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+        }
     </style>
     
     <!-- 非关键CSS异步加载 -->
@@ -427,6 +495,8 @@
     <noscript><link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"></noscript>
 </head>
 <body>
+    <button class="sidebar-toggle" id="sidebarToggle">☰</button>
+    
     <div id="map">
         <div class="map-loading" id="mapLoading">
             地图加载中...
@@ -460,8 +530,25 @@
         <div class="sidebar-header">
             <h2>haGQ-全球地震监测</h2>
             <div style="font-size: 14px; margin-top: 5px;">实时全球地震数据与自动测算</div>
+            <button class="collapse-btn" id="collapseBtn">×</button>
         </div>
         <div class="sidebar-content">
+            <!-- 性能指标 -->
+            <div class="performance-panel">
+                <div class="performance-item">
+                    <span class="performance-label">数据加载时间:</span>
+                    <span class="performance-value" id="loadTime">0ms</span>
+                </div>
+                <div class="performance-item">
+                    <span class="performance-label">内存使用:</span>
+                    <span class="performance-value" id="memoryUsage">0MB</span>
+                </div>
+                <div class="performance-item">
+                    <span class="performance-label">缓存命中率:</span>
+                    <span class="performance-value" id="cacheHitRate">0%</span>
+                </div>
+            </div>
+            
             <!-- 位置设置部分 -->
             <div class="location-section">
                 <strong>📍 位置设置</strong>
@@ -555,7 +642,7 @@
             lastQuakeIds: new Set(),
             dataCache: null,
             cacheTimestamp: 0,
-            currentDataSource: 'cenc', // 默认使用中国地震台网
+            currentDataSource: 'cenc',
             worldGeoJson: null,
             refreshInterval: null,
             calculationSettings: {
@@ -564,7 +651,16 @@
                 warningDistance: 300,
                 showCalculations: true
             },
-            CACHE_TTL: 30000 // 缓存30秒
+            CACHE_TTL: 30000,
+            performanceMetrics: {
+                loadStartTime: 0,
+                cacheHits: 0,
+                totalRequests: 0
+            },
+            // 新增：数据分块管理
+            dataChunks: new Map(),
+            currentChunk: 0,
+            chunksPerPage: 50
         };
 
         // 调试功能
@@ -595,9 +691,21 @@
             showDebugInfo(text);
         }
 
+        // 性能监控
+        function updatePerformanceMetrics(loadTime) {
+            const memory = performance.memory ? (performance.memory.usedJSHeapSize / 1048576).toFixed(2) : 'N/A';
+            const hitRate = AppState.performanceMetrics.totalRequests > 0 ? 
+                Math.round((AppState.performanceMetrics.cacheHits / AppState.performanceMetrics.totalRequests) * 100) : 0;
+            
+            document.getElementById('loadTime').textContent = `${loadTime}ms`;
+            document.getElementById('memoryUsage').textContent = `${memory}MB`;
+            document.getElementById('cacheHitRate').textContent = `${hitRate}%`;
+        }
+
         // 使用异步函数控制初始化流程
         async function initApp() {
             showDebugInfo('开始初始化应用');
+            AppState.performanceMetrics.loadStartTime = performance.now();
             
             try {
                 // 并行初始化地图和加载数据
@@ -609,6 +717,9 @@
                 AppState.map = map;
                 processEarthquakeData(earthquakeData);
                 document.getElementById('mapLoading').style.display = 'none';
+                
+                const loadTime = Math.round(performance.now() - AppState.performanceMetrics.loadStartTime);
+                updatePerformanceMetrics(loadTime);
                 
             } catch (error) {
                 console.error('初始化失败:', error);
@@ -629,8 +740,8 @@
                         showDebugInfo('Leaflet库加载完成，开始初始化地图');
                         // 初始化地图
                         const map = L.map('map', {
-                            preferCanvas: true, // 使用Canvas渲染提升大量点位的性能
-                            zoomControl: false, // 可先禁用，后续按需添加
+                            preferCanvas: true,
+                            zoomControl: false,
                             center: [AppState.userLocation.lat, AppState.userLocation.lng],
                             zoom: 3,
                             minZoom: 1,
@@ -641,7 +752,11 @@
 
                         // 异步加载地图瓦片
                         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-                            attribution: '&copy; OpenStreetMap contributors'
+                            attribution: '&copy; OpenStreetMap contributors',
+                            // 新增：瓦片缓存优化
+                            maxZoom: 18,
+                            minZoom: 1,
+                            maxNativeZoom: 19
                         }).addTo(map);
 
                         // 用户位置标记
@@ -671,6 +786,31 @@
                 
             showDebugInfo(`用户位置标记更新: ${AppState.userLocation.lat}, ${AppState.userLocation.lng}`);
         }
+
+        // 侧边栏控制
+        document.getElementById('collapseBtn').addEventListener('click', function() {
+            document.getElementById('sidebar').classList.add('sidebar-collapsed');
+            document.getElementById('sidebarToggle').style.display = 'flex';
+        });
+
+        document.getElementById('sidebarToggle').addEventListener('click', function() {
+            document.getElementById('sidebar').classList.remove('sidebar-collapsed');
+            this.style.display = 'none';
+        });
+
+        // 响应式侧边栏
+        function checkScreenSize() {
+            if (window.innerWidth < 768) {
+                document.getElementById('sidebar').classList.add('sidebar-collapsed');
+                document.getElementById('sidebarToggle').style.display = 'flex';
+            } else {
+                document.getElementById('sidebar').classList.remove('sidebar-collapsed');
+                document.getElementById('sidebarToggle').style.display = 'none';
+            }
+        }
+
+        window.addEventListener('resize', checkScreenSize);
+        checkScreenSize();
 
         // 加载测算设置
         function loadCalculationSettings() {
@@ -707,23 +847,26 @@
             });
             
             // 添加新图层
+            let tileLayer;
             switch(style) {
                 case 'simple':
-                    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                    tileLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
                         attribution: '&copy; OpenStreetMap contributors'
-                    }).addTo(AppState.map);
+                    });
                     break;
                 case 'topo':
-                    L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {
+                    tileLayer = L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {
                         attribution: '&copy; OpenTopoMap contributors'
-                    }).addTo(AppState.map);
+                    });
                     break;
                 case 'dark':
-                    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+                    tileLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
                         attribution: '&copy; CARTO'
-                    }).addTo(AppState.map);
+                    });
                     break;
             }
+            
+            tileLayer.addTo(AppState.map);
             
             // 重新添加用户标记和地震标记
             updateUserMarker(AppState.map);
@@ -741,7 +884,9 @@
             event.target.classList.add('active');
             
             AppState.currentDataSource = source;
-            AppState.dataCache = null; // 清除缓存
+            AppState.dataCache = null;
+            AppState.dataChunks.clear();
+            AppState.currentChunk = 0;
             updateStatus(`切换到数据源: ${source}`);
             loadEarthquakeData();
         }
@@ -770,134 +915,4 @@
         // 获取当前位置
         function getCurrentLocation() {
             if (!navigator.geolocation) {
-                alert('您的浏览器不支持地理位置获取');
-                return;
-            }
-            
-            updateStatus('正在获取当前位置...');
-            
-            navigator.geolocation.getCurrentPosition(
-                (position) => {
-                    const lat = position.coords.latitude;
-                    const lng = position.coords.longitude;
-                    
-                    document.getElementById('latInput').value = lat.toFixed(6);
-                    document.getElementById('lngInput').value = lng.toFixed(6);
-                    
-                    AppState.userLocation.lat = lat;
-                    AppState.userLocation.lng = lng;
-                    
-                    updateUserMarker(AppState.map);
-                    AppState.map.setView([lat, lng], 8);
-                    loadEarthquakeData();
-                    
-                    updateStatus('当前位置已获取');
-                },
-                (error) => {
-                    updateStatus('获取当前位置失败: ' + error.message);
-                    alert('获取当前位置失败：' + error.message);
-                }
-            );
-        }
-
-        // 加载地震数据
-        async function loadEarthquakeData() {
-            updateStatus('正在加载地震数据...');
-            document.getElementById('loading').style.display = 'block';
-            
-            // 检查缓存
-            const now = Date.now();
-            if (AppState.dataCache && (now - AppState.cacheTimestamp) < AppState.CACHE_TTL) {
-                showDebugInfo('使用缓存数据');
-                processEarthquakeData(AppState.dataCache);
-                document.getElementById('loading').style.display = 'none';
-                return;
-            }
-            
-            try {
-                showDebugInfo(`开始请求 ${AppState.currentDataSource} 数据...`);
-                const data = await fetchEarthquakeData(AppState.currentDataSource);
-                
-                // 缓存数据
-                AppState.dataCache = data;
-                AppState.cacheTimestamp = now;
-                
-                // 处理数据
-                processEarthquakeData(data);
-                
-            } catch (error) {
-                updateStatus('数据加载失败: ' + error.message);
-                console.error('Data load error:', error);
-                showDebugInfo('数据加载失败，使用备用数据: ' + error.message);
-                useFallbackData();
-            } finally {
-                document.getElementById('loading').style.display = 'none';
-            }
-        }
-
-        // 获取地震数据（多数据源）
-        async function fetchEarthquakeData(source) {
-            const urls = {
-                'usgs': 'https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_day.geojson',
-                'emsc': 'https://www.seismicportal.eu/fdsnws/event/1/query?format=json&minmag=2.5&limit=100',
-                'jma': 'https://api.p2pquake.net/v2/jma/earthquakes?limit=50',
-                'cenc': 'https://api.oioweb.cn/api/earthquake/list' // 中国地震台网数据
-            };
-
-            showDebugInfo(`请求URL: ${urls[source]}`);
-            
-            try {
-                const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), 5000); // 5秒超时
-                
-                const response = await fetch(urls[source], {
-                    signal: controller.signal,
-                    mode: 'cors'
-                });
-                
-                clearTimeout(timeoutId);
-                
-                if (!response.ok) {
-                    throw new Error(`HTTP error! status: ${response.status}`);
-                }
-                
-                const data = await response.json();
-                showDebugInfo(`成功从 ${source} 获取数据`);
-                
-                // 转换不同数据源格式为标准格式
-                return convertToStandardFormat(data, source);
-            } catch (error) {
-                showDebugInfo(`数据源 ${source} 请求失败: ${error.message}`);
-                throw error;
-            }
-        }
-
-        // 转换数据为标准格式
-        function convertToStandardFormat(data, source) {
-            if (source === 'usgs') {
-                return data;
-            } else if (source === 'emsc') {
-                return convertEmscToGeoJSON(data);
-            } else if (source === 'jma') {
-                return convertJmaToGeoJSON(data);
-            } else if (source === 'cenc') {
-                return convertCencToGeoJSON(data);
-            } else {
-                return data;
-            }
-        }
-
-        // 转换EMSC数据为GeoJSON
-        function convertEmscToGeoJSON(data) {
-            const features = (data.features || []).map(feature => ({
-                type: "Feature",
-                properties: {
-                    mag: feature.properties?.mag || 0,
-                    place: feature.properties?.description || '未知地区',
-                    time: feature.properties?.time || Date.now(),
-                    title: `M${feature.properties?.mag || 0} 地震 - ${feature.properties?.description || '未知地区'}`,
-                    depth: feature.properties?.depth || 10
-                },
-                geometry: {
-                    type: "Point",
-            
+     
