@@ -1,1040 +1,903 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-  <meta charset="utf-8">
-  <title>haGQ - 全球地震监测</title>
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
-  <style>
-    :root {
-      --primary-color: #3498db;
-      --danger-color: #e74c3c;
-      --warning-color: #f39c12;
-      --success-color: #2ecc71;
-      --light-color: #ecf0f1;
-      --dark-color: #2c3e50;
-    }
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>haGQ-全球地震监测</title>
     
-    body {
-      margin: 0;
-      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-      background: #f2f2f2;
-      display: flex;
-      height: 100vh;
-      overflow: hidden;
-    }
+    <!-- 预连接关键外部源，加速后续请求 -->
+    <link rel="preconnect" href="https://unpkg.com">
+    <link rel="preconnect" href="https://earthquake.usgs.gov">
+    <link rel="preconnect" href="https://tile.openstreetmap.org">
     
-    #map {
-      flex: 1;
-      height: 100%;
-      position: relative;
-    }
+    <!-- 关键CSS内联，减少渲染阻塞 -->
+    <style>
+        :root {
+            --primary-color: #3498db;
+            --danger-color: #e74c3c;
+            --warning-color: #f39c12;
+            --success-color: #2ecc71;
+            --dark-color: #2c3e50;
+        }
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #f5f7fa;
+            display: flex;
+            height: 100vh;
+            overflow: hidden;
+        }
+        
+        #map {
+            flex: 1;
+            height: 100%;
+            position: relative;
+        }
+        
+        #sidebar {
+            width: 450px;
+            background: white;
+            box-shadow: -2px 0 10px rgba(0,0,0,0.1);
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+            z-index: 1000;
+        }
+        
+        .sidebar-header {
+            padding: 15px;
+            border-bottom: 1px solid #eee;
+            background: var(--dark-color);
+            color: white;
+        }
+        
+        .sidebar-content {
+            flex: 1;
+            overflow-y: auto;
+            padding: 15px;
+        }
+        
+        .quake-item {
+            background: #f8f9fa;
+            margin: 10px 0;
+            padding: 12px;
+            border-radius: 8px;
+            border-left: 4px solid var(--primary-color);
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+        
+        .quake-item:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        }
+        
+        .quake-mag {
+            font-weight: bold;
+            font-size: 18px;
+            color: var(--dark-color);
+        }
+        
+        .quake-location {
+            margin: 5px 0;
+            font-size: 14px;
+        }
+        
+        .quake-time {
+            font-size: 12px;
+            color: #666;
+        }
+        
+        .quake-details {
+            font-size: 11px;
+            color: #888;
+            margin-top: 5px;
+            line-height: 1.4;
+        }
+        
+        .source-badge {
+            display: inline-block;
+            background: #e1f5fe;
+            color: #01579b;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 10px;
+            margin-left: 8px;
+        }
+        
+        .controls {
+            position: absolute;
+            top: 15px;
+            right: 15px;
+            z-index: 1000;
+            background: white;
+            padding: 10px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+        
+        .alert-banner {
+            position: absolute;
+            top: 15px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: var(--danger-color);
+            color: white;
+            padding: 12px 20px;
+            border-radius: 6px;
+            z-index: 1000;
+            display: none;
+            font-weight: bold;
+        }
+        
+        .loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0,0,0,0.8);
+            color: white;
+            padding: 20px;
+            border-radius: 8px;
+            z-index: 1000;
+        }
+        
+        .stats {
+            position: absolute;
+            bottom: 15px;
+            left: 15px;
+            background: rgba(0,0,0,0.7);
+            color: white;
+            padding: 8px 12px;
+            border-radius: 6px;
+            font-size: 12px;
+            z-index: 1000;
+        }
+        
+        .filter-section {
+            background: #f8f9fa;
+            padding: 12px;
+            border-radius: 8px;
+            margin-bottom: 15px;
+        }
+        
+        .filter-controls {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-top: 8px;
+        }
+        
+        .filter-controls label {
+            display: flex;
+            align-items: center;
+            font-size: 14px;
+        }
+        
+        .filter-controls input, .filter-controls select {
+            padding: 4px;
+            border-radius: 4px;
+            border: 1px solid #ccc;
+            margin-left: 5px;
+        }
+        
+        .location-section {
+            background: #e8f4fd;
+            padding: 12px;
+            border-radius: 8px;
+            margin-bottom: 15px;
+        }
+        
+        .location-inputs {
+            display: flex;
+            gap: 10px;
+            margin: 10px 0;
+        }
+        
+        .location-inputs input {
+            flex: 1;
+            padding: 8px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+        }
+        
+        .location-buttons {
+            display: flex;
+            gap: 10px;
+        }
+        
+        .location-buttons button {
+            padding: 8px 12px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        
+        .save-btn {
+            background: var(--success-color);
+            color: white;
+        }
+        
+        .locate-btn {
+            background: var(--primary-color);
+            color: white;
+        }
+        
+        .debug-info {
+            background: #fff3cd;
+            border: 1px solid #ffeaa7;
+            padding: 10px;
+            border-radius: 4px;
+            margin: 10px 0;
+            font-size: 12px;
+            display: none;
+        }
+        
+        .debug-info pre {
+            background: #f8f9fa;
+            padding: 8px;
+            border-radius: 4px;
+            overflow-x: auto;
+            margin-top: 5px;
+        }
+
+        .map-loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0,0,0,0.8);
+            color: white;
+            padding: 15px;
+            border-radius: 8px;
+            z-index: 999;
+        }
+        
+        .refresh-info {
+            background: #e8f4fd;
+            padding: 8px 12px;
+            border-radius: 4px;
+            font-size: 12px;
+            margin-bottom: 10px;
+            text-align: center;
+        }
+        
+        /* 地震波到达时间样式 */
+        .wave-info {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 3px;
+        }
+        
+        .p-wave {
+            color: #3498db;
+            font-weight: bold;
+        }
+        
+        .s-wave {
+            color: #e74c3c;
+            font-weight: bold;
+        }
+        
+        .data-source-selector {
+            background: #f8f9fa;
+            padding: 10px;
+            border-radius: 8px;
+            margin-bottom: 15px;
+        }
+        
+        .data-source-buttons {
+            display: flex;
+            gap: 5px;
+            margin-top: 8px;
+            flex-wrap: wrap;
+        }
+        
+        .data-source-btn {
+            padding: 6px 10px;
+            border: 1px solid #ccc;
+            background: white;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+        }
+        
+        .data-source-btn.active {
+            background: var(--primary-color);
+            color: white;
+            border-color: var(--primary-color);
+        }
+
+        /* 性能优化样式 */
+        .skeleton {
+            background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+            background-size: 200% 100%;
+            animation: loading 1.5s infinite;
+            border-radius: 4px;
+        }
+        
+        @keyframes loading {
+            0% {
+                background-position: 200% 0;
+            }
+            100% {
+                background-position: -200% 0;
+            }
+        }
+        
+        .skeleton-item {
+            height: 80px;
+            margin: 10px 0;
+            border-radius: 8px;
+        }
+
+        /* 震级颜色 */
+        .mag-0 { border-left-color: #95a5a6; }
+        .mag-2 { border-left-color: #3498db; }
+        .mag-4 { border-left-color: #f39c12; }
+        .mag-5 { border-left-color: #e67e22; }
+        .mag-6 { border-left-color: #e74c3c; }
+        .mag-7 { border-left-color: #c0392b; }
+
+        /* 地图标记样式 */
+        .earthquake-marker {
+            border-radius: 50%;
+            border: 2px solid white;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+        }
+        
+        /* 测算结果样式 */
+        .calculation-results {
+            background: #e8f5e9;
+            border-left: 3px solid #4caf50;
+            padding: 8px;
+            margin-top: 8px;
+            border-radius: 4px;
+            font-size: 11px;
+        }
+        
+        .calculation-item {
+            display: flex;
+            justify-content: space-between;
+            margin: 3px 0;
+        }
+        
+        .calculation-label {
+            color: #555;
+        }
+        
+        .calculation-value {
+            font-weight: bold;
+            color: #2e7d32;
+        }
+        
+        .intensity-indicator {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            margin-right: 5px;
+        }
+        
+        .intensity-1 { background-color: #4caf50; }
+        .intensity-2 { background-color: #8bc34a; }
+        .intensity-3 { background-color: #cddc39; }
+        .intensity-4 { background-color: #ffeb3b; }
+        .intensity-5 { background-color: #ffc107; }
+        .intensity-6 { background-color: #ff9800; }
+        .intensity-7 { background-color: #ff5722; }
+        
+        .settings-panel {
+            background: #f8f9fa;
+            padding: 12px;
+            border-radius: 8px;
+            margin-bottom: 15px;
+        }
+        
+        .settings-toggle {
+            background: none;
+            border: none;
+            color: var(--primary-color);
+            cursor: pointer;
+            font-size: 12px;
+            text-decoration: underline;
+            margin-top: 5px;
+        }
+        
+        .advanced-settings {
+            margin-top: 10px;
+            padding-top: 10px;
+            border-top: 1px solid #ddd;
+            display: none;
+        }
+    </style>
     
-    #sidebar {
-      width: 420px;
-      background: #fff;
-      box-shadow: -2px 0 5px rgba(0,0,0,.1);
-      padding: 15px;
-      overflow-y: auto;
-      display: flex;
-      flex-direction: column;
-    }
-    
-    .header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 15px;
-      border-bottom: 1px solid #eee;
-      padding-bottom: 10px;
-    }
-    
-    .header h1 {
-      margin: 0;
-      color: var(--dark-color);
-      font-size: 24px;
-    }
-    
-    .item {
-      background: #f7f7f7;
-      margin: 8px 0;
-      padding: 12px;
-      border-radius: 6px;
-      cursor: pointer;
-      display: flex;
-      align-items: center;
-      transition: all 0.2s;
-      border-left: 4px solid #3498db;
-    }
-    
-    .item:hover {
-      background: #e9f7fe;
-      transform: translateY(-2px);
-      box-shadow: 0 4px 8px rgba(0,0,0,0.1);
-    }
-    
-    .mag {
-      font-weight: bold;
-      font-size: 18px;
-      margin-right: 8px;
-      min-width: 50px;
-    }
-    
-    .dist {
-      color: #666;
-      margin-left: 10px;
-      font-size: 14px;
-    }
-    
-    .intensity {
-      margin-left: 10px;
-      font-size: 14px;
-      font-weight: bold;
-    }
-    
-    .icon {
-      width: 28px;
-      height: 28px;
-      display: inline-block;
-      margin-right: 10px;
-    }
-    
-    .setting {
-      background: #e9e9e9;
-      padding: 12px;
-      border-radius: 6px;
-      margin-bottom: 15px;
-    }
-    
-    label {
-      margin-right: 10px;
-      font-weight: 500;
-    }
-    
-    input, select {
-      padding: 6px;
-      border-radius: 4px;
-      border: 1px solid #ccc;
-    }
-    
-    input {
-      width: 120px;
-    }
-    
-    button {
-      background: var(--primary-color);
-      color: white;
-      border: none;
-      padding: 6px 12px;
-      border-radius: 4px;
-      cursor: pointer;
-      transition: background 0.2s;
-    }
-    
-    button:hover {
-      background: #2980b9;
-    }
-    
-    #status {
-      font-size: 14px;
-      color: #555;
-      margin-left: 10px;
-    }
-    
-    audio {
-      display: none;
-    }
-    
-    #mapLoading {
-      position: absolute;
-      top: 10px;
-      left: 10px;
-      background: rgba(0,0,0,.35);
-      color: #fff;
-      font-size: 18px;
-      font-weight: bold;
-      padding: 6px 22px;
-      border-radius: 8px;
-      z-index: 1000;
-      box-shadow: 0 2px 8px rgba(0,0,0,.10);
-      pointer-events: none;
-      transition: opacity .3s;
-    }
-    
-    #mapClock {
-      position: absolute;
-      right: 10px;
-      bottom: 10px;
-      background: rgba(255,255,255,0.85);
-      font-size: 16px;
-      padding: 6px 18px;
-      border-radius: 8px;
-      border: 1px solid #d9d9d9;
-      z-index: 1200;
-      box-shadow: 0 2px 8px rgba(0,0,0,.07);
-      display: flex;
-      align-items: center;
-    }
-    
-    #clockSwitchBtn {
-      margin-left: 12px;
-      background: #eee;
-      border-radius: 5px;
-      border: 1px solid #ccc;
-      font-size: 14px;
-      padding: 1px 8px;
-      cursor: pointer;
-      transition: background .2s;
-    }
-    
-    #clockSwitchBtn:hover {
-      background: #d7eaff;
-    }
-    
-    .copy-info {
-      background: #e8f4fd;
-      padding: 8px;
-      border-radius: 4px;
-      margin-bottom: 10px;
-      font-size: 14px;
-      color: #2c3e50;
-    }
-    
-    .filter-section {
-      margin: 10px 0;
-      padding: 10px;
-      background: #f8f9fa;
-      border-radius: 6px;
-    }
-    
-    .filter-controls {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 10px;
-      margin-top: 8px;
-    }
-    
-    .filter-controls label {
-      display: flex;
-      align-items: center;
-      font-size: 14px;
-    }
-    
-    .filter-controls input {
-      width: 60px;
-      margin-left: 5px;
-    }
-    
-    .quake-details {
-      display: none;
-      background: white;
-      padding: 15px;
-      border-radius: 6px;
-      margin-top: 10px;
-      box-shadow: 0 2px 5px rgba(0,0,0,0.1);
-    }
-    
-    .quake-details h4 {
-      margin-top: 0;
-      color: var(--dark-color);
-    }
-    
-    .quake-details table {
-      width: 100%;
-      border-collapse: collapse;
-    }
-    
-    .quake-details td {
-      padding: 5px 0;
-      border-bottom: 1px solid #eee;
-    }
-    
-    .quake-details td:first-child {
-      font-weight: bold;
-      width: 40%;
-    }
-    
-    .timeline-container {
-      margin-top: 15px;
-      background: white;
-      padding: 15px;
-      border-radius: 6px;
-      box-shadow: 0 2px 5px rgba(0,0,0,0.1);
-    }
-    
-    .timeline {
-      height: 60px;
-      position: relative;
-      margin-top: 10px;
-    }
-    
-    .timeline-marker {
-      position: absolute;
-      width: 12px;
-      height: 12px;
-      border-radius: 50%;
-      transform: translateX(-50%);
-      cursor: pointer;
-    }
-    
-    .timeline-label {
-      position: absolute;
-      top: 15px;
-      font-size: 10px;
-      transform: translateX(-50%);
-      white-space: nowrap;
-    }
-    
-    .source-badge {
-      background: #e1f5fe;
-      color: #01579b;
-      padding: 2px 6px;
-      border-radius: 4px;
-      font-size: 12px;
-      margin-left: 8px;
-    }
-    
-    .quake-time {
-      color: #666;
-      font-size: 12px;
-      margin-left: 8px;
-    }
-    
-    .map-controls {
-      position: absolute;
-      top: 10px;
-      right: 10px;
-      z-index: 1000;
-      background: white;
-      padding: 8px;
-      border-radius: 4px;
-      box-shadow: 0 2px 5px rgba(0,0,0,0.2);
-    }
-    
-    .map-controls button {
-      margin: 2px;
-      padding: 4px 8px;
-      font-size: 12px;
-    }
-    
-    .alert-banner {
-      position: absolute;
-      top: 50px;
-      left: 50%;
-      transform: translateX(-50%);
-      background: rgba(231, 76, 60, 0.9);
-      color: white;
-      padding: 10px 20px;
-      border-radius: 4px;
-      z-index: 1000;
-      box-shadow: 0 2px 10px rgba(0,0,0,0.3);
-      display: none;
-      font-weight: bold;
-    }
-    
-    .replay-controls {
-      position: absolute;
-      bottom: 50px;
-      left: 50%;
-      transform: translateX(-50%);
-      background: rgba(255, 255, 255, 0.95);
-      padding: 10px 15px;
-      border-radius: 6px;
-      box-shadow: 0 2px 10px rgba(0,0,0,0.2);
-      z-index: 1000;
-      display: none;
-      align-items: center;
-      gap: 10px;
-    }
-    
-    .replay-controls button {
-      padding: 4px 8px;
-      font-size: 12px;
-    }
-    
-    .replay-slider {
-      width: 200px;
-    }
-    
-    .replay-time {
-      font-size: 14px;
-      font-weight: bold;
-      min-width: 150px;
-      text-align: center;
-    }
-    
-    .replay-speed {
-      width: 80px;
-    }
-    
-    .loading-dots:after {
-      content: '...';
-      animation: dots 1.5s steps(4, end) infinite;
-    }
-    
-    @keyframes dots {
-      0%, 20% { content: '.'; }
-      40% { content: '..'; }
-      60%, 100% { content: '...'; }
-    }
-    
-    .error-message {
-      background: #ffebee;
-      color: #c62828;
-      padding: 10px;
-      border-radius: 4px;
-      margin: 10px 0;
-      border-left: 4px solid #c62828;
-    }
-    
-    .retry-button {
-      background: #c62828;
-      color: white;
-      border: none;
-      padding: 5px 10px;
-      border-radius: 3px;
-      cursor: pointer;
-      margin-left: 10px;
-    }
-    
-    .performance-stats {
-      position: absolute;
-      bottom: 10px;
-      left: 10px;
-      background: rgba(0,0,0,0.7);
-      color: white;
-      padding: 5px 10px;
-      border-radius: 4px;
-      font-size: 12px;
-      z-index: 1000;
-    }
-    
-    @media (max-width: 768px) {
-      body {
-        flex-direction: column;
-      }
-      
-      #sidebar {
-        width: 100%;
-        height: 40%;
-      }
-      
-      #map {
-        height: 60%;
-      }
-      
-      .replay-controls {
-        bottom: 10px;
-        left: 10px;
-        transform: none;
-        flex-wrap: wrap;
-        width: calc(100% - 20px);
-      }
-      
-      .replay-slider {
-        width: 100%;
-      }
-    }
-  </style>
+    <!-- 非关键CSS异步加载 -->
+    <link rel="preload" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" as="style" onload="this.onload=null;this.rel='stylesheet'">
+    <noscript><link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"></noscript>
 </head>
 <body>
-  <div id="map">
-    <div id="mapLoading">地图加载中<span class="loading-dots"></span></div>
-    <div id="mapClock">
-      <span id="clockLabel"></span>
-      <button id="clockSwitchBtn" onclick="switchClockMode()">切换为本地时间</button>
-    </div>
-    <div class="map-controls">
-      <button onclick="switchMapStyle('osm')">世界地图</button>
-      <button onclick="switchMapStyle('gaode')">高德地图</button>
-      <button onclick="switchMapStyle('satellite')">卫星地图</button>
-      <button onclick="toggleReplay()" id="replayToggleBtn">地震回放</button>
-    </div>
-    <div class="alert-banner" id="alertBanner">
-      <span id="alertText"></span>
-      <button onclick="closeAlert()" style="margin-left: 10px; background: white; color: #e74c3c;">关闭</button>
-    </div>
-    <div class="replay-controls" id="replayControls">
-      <button onclick="replayFirst()" title="跳到开始">⏮</button>
-      <button onclick="replayPrev()" title="上一步">◀</button>
-      <button onclick="toggleReplayPlay()" id="replayPlayBtn">▶</button>
-      <button onclick="replayNext()" title="下一步">▶</button>
-      <button onclick="replayLast()" title="跳到结束">⏭</button>
-      <input type="range" min="0" max="100" value="0" class="replay-slider" id="replaySlider">
-      <span class="replay-time" id="replayTime">--</span>
-      <select class="replay-speed" id="replaySpeed">
-        <option value="5000">0.2x</option>
-        <option value="2000" selected>0.5x</option>
-        <option value="1000">1x</option>
-        <option value="500">2x</option>
-        <option value="250">4x</option>
-      </select>
-      <button onclick="toggleReplay()" style="background: #e74c3c;">关闭回放</button>
-    </div>
-    <div class="performance-stats" id="performanceStats">
-      数据: <span id="dataCount">0</span> | 内存: <span id="memoryUsage">0MB</span>
-    </div>
-  </div>
-  <div id="sidebar">
-    <div class="header">
-      <h1>haGQ - 全球地震监测</h1>
-      <span id="status"></span>
-    </div>
-    
-    <div class="setting">
-      <label>纬度：<input id="lat" type="number" step="0.0001" value="32"></label>
-      <label>经度：<input id="lon" type="number" step="0.0001" value="110"></label>
-      <button onclick="savePos()">保存</button>
-      <span id="saved"></span>
-      <br>
-      <label>数据源：</label>
-      <select id="sourceSelect" onchange="fetchQuakeData()">
-        <option value="all">全部数据源</option>
-        <option value="cenc">中国地震台网</option>
-        <option value="usgs">USGS全球地震</option>
-        <option value="emsc">EMSC全球地震</option>
-        <option value="p2pquake">P2PQuake</option>
-        <option value="jma">日本气象厅</option>
-      </select>
-    </div>
-    
-    <div class="filter-section">
-      <strong>筛选条件：</strong>
-      <div class="filter-controls">
-        <label>最小震级：<input id="minMag" type="number" min="0" max="10" step="0.1" value="0" onchange="applyFilters()"></label>
-        <label>最大距离：<input id="maxDist" type="number" min="0" step="100" value="10000" onchange="applyFilters()"> km</label>
-        <label>时间范围：<input id="timeRange" type="number" min="1" value="24" onchange="applyFilters()"> 小时</label>
-      </div>
-    </div>
-    
-    <div class="copy-info" id="copyInfo">可点击历史地震项复制信息</div>
-    
-    <div class="quake-details" id="quakeDetails">
-      <h4>地震详情</h4>
-      <table>
-        <tr><td>地点：</td><td id="detailPlace"></td></tr>
-        <tr><td>震级：</td><td id="detailMag"></td></tr>
-        <tr><td>时间：</td><td id="detailTime"></td></tr>
-        <tr><td>烈度：</td><td id="detailIntensity"></td></tr>
-        <tr><td>距离：</td><td id="detailDistance"></td></tr>
-        <tr><td>P波到达：</td><td id="detailPWave"></td></tr>
-        <tr><td>S波到达：</td><td id="detailSWave"></td></tr>
-        <tr><td>数据源：</td><td id="detailSource"></td></tr>
-      </table>
-    </div>
-    
-    <h3 id="listTitle">历史地震（最近50条）</h3>
-    <div id="list"></div>
-    
-    <div class="timeline-container">
-      <strong>时间线</strong>
-      <div class="timeline" id="timeline"></div>
-    </div>
-  </div>
-  
-  <!-- 多种音效 -->
-  <audio id="alert" src="data:audio/wav;base64,UklGRoABAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8A" preload="auto"></audio>
-  <audio id="countdown" preload="auto"></audio>
-  <audio id="srev" preload="auto"></audio>
-  
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script>
-    // ==================== 性能优化部分 ====================
-    
-    // DOM缓存
-    const DOM = {
-      map: null,
-      mapLoading: document.getElementById('mapLoading'),
-      mapClock: document.getElementById('mapClock'),
-      clockLabel: document.getElementById('clockLabel'),
-      clockSwitchBtn: document.getElementById('clockSwitchBtn'),
-      status: document.getElementById('status'),
-      lat: document.getElementById('lat'),
-      lon: document.getElementById('lon'),
-      saved: document.getElementById('saved'),
-      sourceSelect: document.getElementById('sourceSelect'),
-      minMag: document.getElementById('minMag'),
-      maxDist: document.getElementById('maxDist'),
-      timeRange: document.getElementById('timeRange'),
-      copyInfo: document.getElementById('copyInfo'),
-      list: document.getElementById('list'),
-      quakeDetails: document.getElementById('quakeDetails'),
-      detailPlace: document.getElementById('detailPlace'),
-      detailMag: document.getElementById('detailMag'),
-      detailTime: document.getElementById('detailTime'),
-      detailIntensity: document.getElementById('detailIntensity'),
-      detailDistance: document.getElementById('detailDistance'),
-      detailPWave: document.getElementById('detailPWave'),
-      detailSWave: document.getElementById('detailSWave'),
-      detailSource: document.getElementById('detailSource'),
-      timeline: document.getElementById('timeline'),
-      alertBanner: document.getElementById('alertBanner'),
-      alertText: document.getElementById('alertText'),
-      replayControls: document.getElementById('replayControls'),
-      replayToggleBtn: document.getElementById('replayToggleBtn'),
-      replayPlayBtn: document.getElementById('replayPlayBtn'),
-      replaySlider: document.getElementById('replaySlider'),
-      replayTime: document.getElementById('replayTime'),
-      replaySpeed: document.getElementById('replaySpeed'),
-      performanceStats: document.getElementById('performanceStats'),
-      dataCount: document.getElementById('dataCount'),
-      memoryUsage: document.getElementById('memoryUsage')
-    };
-
-    // 数据缓存
-    let cache = {
-      earthquakeData: new Map(),
-      lastFetchTime: 0,
-      CACHE_DURATION: 60000 // 1分钟缓存
-    };
-
-    // 性能监控
-    const performance = {
-      startTime: Date.now(),
-      dataLoads: 0,
-      memory: {
-        getUsage: function() {
-          if (performance.memory) {
-            return (performance.memory.usedJSHeapSize / 1048576).toFixed(1);
-          }
-          return 'N/A';
-        }
-      }
-    };
-
-    // ==================== 核心功能部分 ====================
-    
-    // 时钟功能
-    let clockMode = "bj";
-    
-    function getBJTime() {
-      let now = new Date();
-      return new Date(now.getTime() + (8 - now.getTimezoneOffset()/60)*3600*1000);
-    }
-    
-    function formatTime(dt) {
-      return dt.getFullYear() + '-' + 
-             ('0'+(dt.getMonth()+1)).slice(-2) + '-' +
-             ('0'+dt.getDate()).slice(-2) + ' ' +
-             ('0'+dt.getHours()).slice(-2) + ':' +
-             ('0'+dt.getMinutes()).slice(-2) + ':' +
-             ('0'+dt.getSeconds()).slice(-2);
-    }
-    
-    function updateClock() {
-      if (clockMode === "bj") {
-        DOM.clockLabel.textContent = "北京时间: " + formatTime(getBJTime());
-        DOM.clockSwitchBtn.textContent = "切换为本地时间";
-      } else {
-        DOM.clockLabel.textContent = "本地时间: " + formatTime(new Date());
-        DOM.clockSwitchBtn.textContent = "切换为北京时间";
-      }
-    }
-    
-    function switchClockMode() {
-      clockMode = clockMode === "bj" ? "local" : "bj";
-      updateClock();
-    }
-
-    // 距离计算 (优化版)
-    function haversine(lat1, lon1, lat2, lon2) {
-      const R = 6371;
-      const dLat = (lat2 - lat1) * Math.PI / 180;
-      const dLon = (lon2 - lon1) * Math.PI / 180;
-      const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
-                Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-                Math.sin(dLon/2) * Math.sin(dLon/2);
-      return R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)));
-    }
-
-    // 烈度颜色和图标
-    function getIntensityColor(intensity) {
-      if (!intensity) return "#3498db";
-      const num = typeof intensity === 'number' ? intensity : parseInt(intensity);
-      if (num >= 7) return "#e74c3c";
-      if (num >= 5) return "#f39c12";
-      if (num >= 3) return "#f1c40f";
-      return "#2ecc71";
-    }
-
-    function getIntensityIcon(intensity) {
-      const color = getIntensityColor(intensity);
-      if (color === "#e74c3c") return "🟥";
-      if (color === "#f39c12") return "🟧";
-      if (color === "#f1c40f") return "🟨";
-      if (color === "#2ecc71") return "🟩";
-      return "🟦";
-    }
-
-    function getSourceName(source) {
-      const sources = {
-        cenc: "中国地震台网",
-        usgs: "USGS全球地震",
-        emsc: "EMSC全球地震",
-        p2pquake: "P2PQuake",
-        jma: "日本气象厅",
-        test: "测试数据"
-      };
-      return sources[source] || source;
-    }
-
-    // ==================== 地图初始化 ====================
-    
-    let map, userMarker, quakeMarkers = [], replayMarkers = [];
-    let lat = parseFloat(localStorage.getItem('lat')) || 32;
-    let lon = parseFloat(localStorage.getItem('lon')) || 110;
-    
-    DOM.lat.value = lat;
-    DOM.lon.value = lon;
-
-    function initMap() {
-      map = L.map('map', {
-        preferCanvas: true,
-        zoomControl: false
-      }).setView([lat, lon], 4);
-
-      // 地图图层
-      const tileLayers = {
-        gaode: L.tileLayer('https://webrd0{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=8&x={x}&y={y}&z={z}', {
-          subdomains: ['1','2','3','4'],
-          maxZoom: 18,
-          attribution: '© 高德地图'
-        }),
-        osm: L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-          maxZoom: 18,
-          attribution: '© OpenStreetMap contributors'
-        }),
-        satellite: L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
-          maxZoom: 18,
-          attribution: 'Tiles &copy; Esri'
-        })
-      };
-
-      // 尝试加载地图
-      const layers = [tileLayers.gaode, tileLayers.osm, tileLayers.satellite];
-      let currentIndex = 0;
-      
-      function tryNextLayer() {
-        if (currentIndex >= layers.length) {
-          console.error('所有地图源都加载失败');
-          DOM.status.textContent = "地图加载失败，请检查网络连接";
-          return;
-        }
+    <div id="map">
+        <div class="map-loading" id="mapLoading">
+            地图加载中...
+        </div>
         
-        const layer = layers[currentIndex];
-        layer.addTo(map)
-          .on('load', function() {
-            DOM.mapLoading.style.opacity = '0';
-            setTimeout(() => DOM.mapLoading.style.display = 'none', 400);
-            L.control.zoom({ position: 'topright' }).addTo(map);
-          })
-          .on('tileerror', function() {
-            map.removeLayer(layer);
-            currentIndex++;
-            tryNextLayer();
-          });
-      }
-      
-      tryNextLayer();
-      userMarker = L.marker([lat, lon], {title: "你的位置"}).addTo(map);
-    }
-
-    function switchMapStyle(style) {
-      // 简化实现，实际需要管理图层
-      DOM.status.textContent = `切换到${style}地图`;
-    }
-
-    // ==================== 数据管理 ====================
-    
-    let earthquakeHistory = [];
-    let filteredQuakes = [];
-    let lastMaxQuakeTime = '';
-
-    const API_URLS = {
-      cenc: "https://api.ceic.ac.cn/earthquake?limit=50",
-      usgs: "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_day.geojson",
-      emsc: "https://www.seismicportal.eu/fdsnws/event/1/query?format=json&limit=50",
-      p2pquake: "https://api.p2pquake.net/v2/history?codes=551&limit=50"
-    };
-
-    async function fetchQuakeData() {
-      DOM.status.textContent = "数据加载中...";
-      performance.dataLoads++;
-      
-      const source = DOM.sourceSelect.value;
-      const cacheKey = `${source}_${Date.now()}`;
-      
-      // 检查缓存
-      if (cache.earthquakeData.has(cacheKey) && 
-          Date.now() - cache.lastFetchTime < cache.CACHE_DURATION) {
-        earthquakeHistory = cache.earthquakeData.get(cacheKey);
-        applyFilters();
-        return;
-      }
-
-      try {
-        let quakes = [];
+        <div class="controls">
+            <button onclick="toggleDataStream()" id="streamToggle">暂停更新</button>
+            <button onclick="refreshData()">立即刷新</button>
+            <select id="mapStyle" onchange="changeMapStyle(this.value)">
+                <option value="simple">简约地图</option>
+                <option value="topo">地形地图</option>
+                <option value="dark">深色地图</option>
+            </select>
+        </div>
         
-        if (source === "all") {
-          const results = await Promise.allSettled([
-            fetchUSGSData(),
-            fetchCENCData(),
-            fetchTestData()
-          ]);
-          
-          results.forEach(result => {
-            if (result.status === 'fulfilled' && result.value) {
-              quakes = quakes.concat(result.value);
+        <div class="alert-banner" id="alertBanner">
+            <span id="alertText"></span>
+            <button onclick="closeAlert()" style="margin-left: 15px; background: white; color: var(--danger-color); border: none; padding: 5px 10px; border-radius: 4px; cursor: pointer;">关闭</button>
+        </div>
+        
+        <div class="loading" id="loading" style="display: none;">
+            正在加载地震数据...
+        </div>
+        
+        <div class="stats" id="stats">
+            地震数据: <span id="quakeCount">0</span> | 状态: <span id="statusText">初始化中</span>
+        </div>
+    </div>
+    
+    <div id="sidebar">
+        <div class="sidebar-header">
+            <h2>haGQ-全球地震监测</h2>
+            <div style="font-size: 14px; margin-top: 5px;">实时全球地震数据与自动测算</div>
+        </div>
+        <div class="sidebar-content">
+            <!-- 位置设置部分 -->
+            <div class="location-section">
+                <strong>📍 位置设置</strong>
+                <div class="location-inputs">
+                    <input type="number" id="latInput" placeholder="纬度" step="0.0001" value="39.9042">
+                    <input type="number" id="lngInput" placeholder="经度" step="0.0001" value="116.4074">
+                </div>
+                <div class="location-buttons">
+                    <button class="save-btn" onclick="saveCurrentLocation()">保存位置</button>
+                    <button class="locate-btn" onclick="getCurrentLocation()">获取当前位置</button>
+                </div>
+            </div>
+            
+            <!-- 数据源选择 -->
+            <div class="data-source-selector">
+                <strong>📡 数据源选择</strong>
+                <div class="data-source-buttons">
+                    <button class="data-source-btn active" onclick="changeDataSource('usgs')">USGS</button>
+                    <button class="data-source-btn" onclick="changeDataSource('emsc')">EMSC</button>
+                    <button class="data-source-btn" onclick="changeDataSource('jma')">JMA</button>
+                    <button class="data-source-btn" onclick="changeDataSource('cenc')">中国地震台网</button>
+                </div>
+            </div>
+            
+            <!-- 测算设置 -->
+            <div class="settings-panel">
+                <strong>🧮 自动测算设置</strong>
+                <div class="filter-controls">
+                    <label>P波速度(km/s): <input id="pWaveSpeed" type="number" min="1" max="10" step="0.1" value="6.0"></label>
+                    <label>S波速度(km/s): <input id="sWaveSpeed" type="number" min="1" max="10" step="0.1" value="3.5"></label>
+                </div>
+                <button class="settings-toggle" onclick="toggleAdvancedSettings()">高级设置</button>
+                <div class="advanced-settings" id="advancedSettings">
+                    <div class="filter-controls">
+                        <label>预警阈值(km): <input id="warningDistance" type="number" min="10" max="1000" step="10" value="300"></label>
+                        <label>显示测算结果: <input id="showCalculations" type="checkbox" checked></label>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- 刷新信息 -->
+            <div class="refresh-info">
+                侧边栏每30秒刷新 | 地图仅在新地震时刷新
+            </div>
+            
+            <!-- 调试信息 -->
+            <div class="debug-info" id="debugInfo">
+                <strong>调试信息</strong>
+                <button onclick="clearDebug()" style="float: right; padding: 2px 6px; font-size: 10px; margin-left: 10px;">清空</button>
+                <button onclick="toggleDebug()" style="float: right; padding: 2px 6px; font-size: 10px;">显示</button>
+                <pre id="debugContent">初始化中...</pre>
+            </div>
+            
+            <div class="filter-section">
+                <strong>筛选条件：</strong>
+                <div class="filter-controls">
+                    <label>最小震级：<input id="minMag" type="number" min="0" max="10" step="0.1" value="2.5" onchange="applyFilters()"></label>
+                    <label>时间范围：<select id="timeRange" onchange="applyFilters()">
+                        <option value="1">1小时</option>
+                        <option value="24" selected>24小时</option>
+                        <option value="168">7天</option>
+                    </select></label>
+                </div>
+            </div>
+            
+            <div id="quakeList">
+                <!-- 骨架屏 -->
+                <div class="skeleton skeleton-item"></div>
+                <div class="skeleton skeleton-item"></div>
+                <div class="skeleton skeleton-item"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 音频元素 -->
+    <audio id="alertSound" preload="auto">
+        <source src="https://assets.mixkit.co/sfx/preview/mixkit-alarm-digital-clock-beep-989.mp3" type="audio/mpeg">
+    </audio>
+
+    <script>
+        // 应用状态管理
+        const AppState = {
+            map: null,
+            quakes: [],
+            markers: [],
+            userMarker: null,
+            isStreaming: true,
+            userLocation: { lat: 39.9042, lng: 116.4074 },
+            currentLayer: null,
+            geoJsonLayers: {},
+            lastQuakeIds: new Set(),
+            dataCache: null,
+            cacheTimestamp: 0,
+            currentDataSource: 'cenc', // 默认使用中国地震台网
+            worldGeoJson: null,
+            refreshInterval: null,
+            calculationSettings: {
+                pWaveSpeed: 6.0,
+                sWaveSpeed: 3.5,
+                warningDistance: 300,
+                showCalculations: true
+            },
+            CACHE_TTL: 30000 // 缓存30秒
+        };
+
+        // 调试功能
+        let debugEnabled = false;
+
+        function showDebugInfo(message) {
+            console.log('DEBUG:', message);
+            if (debugEnabled) {
+                const debugContent = document.getElementById('debugContent');
+                const time = new Date().toLocaleTimeString();
+                debugContent.textContent += `[${time}] ${message}\n`;
+                debugContent.scrollTop = debugContent.scrollHeight;
             }
-          });
-        } else {
-          quakes = await fetchSpecificSource(source);
         }
 
-        // 数据处理
-        quakes = quakes.filter(q => q && q.mag && q.time);
-        quakes.sort((a, b) => new Date(b.time) - new Date(a.time));
-        earthquakeHistory = quakes.slice(0, 50);
-        
-        // 更新缓存
-        cache.earthquakeData.set(cacheKey, earthquakeHistory);
-        cache.lastFetchTime = Date.now();
-        
-        applyFilters();
-        DOM.status.textContent = `已加载 ${earthquakeHistory.length} 条数据`;
-        
-      } catch (error) {
-        console.error('获取数据失败:', error);
-        earthquakeHistory = getTestData();
-        applyFilters();
-        DOM.status.textContent = "使用测试数据";
-      }
-      
-      updatePerformanceStats();
-    }
-
-    async function fetchUSGSData() {
-      try {
-        const response = await fetch(API_URLS.usgs);
-        const data = await response.json();
-        return data.features.map(f => ({
-          mag: f.properties.mag,
-          lat: f.geometry.coordinates[1],
-          lon: f.geometry.coordinates[0],
-          place: f.properties.place,
-          time: new Date(f.properties.time).toISOString(),
-          intensity: "",
-          source: "usgs"
-        }));
-      } catch (error) {
-        return [];
-      }
-    }
-
-    async function fetchCENCData() {
-      try {
-        const response = await fetch(API_URLS.cenc);
-        const data = await response.json();
-        return data.earthquakes ? data.earthquakes.map(e => ({
-          mag: e.magnitude,
-          lat: e.latitude,
-          lon: e.longitude,
-          place: e.location,
-          time: e.time,
-          intensity: e.intensity || "",
-          source: "cenc"
-        })) : [];
-      } catch (error) {
-        return [];
-      }
-    }
-
-    function getTestData() {
-      const now = new Date();
-      return [
-        {
-          mag: 6.5,
-          lat: 34.0,
-          lon: 118.0,
-          place: "测试地震 - 华东地区",
-          time: new Date(now.getTime() - 2 * 60 * 60 * 1000).toISOString(),
-          intensity: "6",
-          source: "test"
-        },
-        {
-          mag: 5.2,
-          lat: 30.0,
-          lon: 110.0,
-          place: "测试地震 - 华中地区", 
-          time: new Date(now.getTime() - 4 * 60 * 60 * 1000).toISOString(),
-          intensity: "5",
-          source: "test"
+        function clearDebug() {
+            document.getElementById('debugContent').textContent = '';
         }
-      ];
-    }
 
-    async function fetchSpecificSource(source) {
-      return getTestData(); // 简化实现
-    }
-
-    async function fetchTestData() {
-      return getTestData();
-    }
-
-    // ==================== 显示功能 ====================
-    
-    function applyFilters() {
-      const minMag = parseFloat(DOM.minMag.value) || 0;
-      const maxDist = parseFloat(DOM.maxDist.value) || 10000;
-      const timeRange = parseFloat(DOM.timeRange.value) || 24;
-      
-      const userLat = parseFloat(DOM.lat.value);
-      const userLon = parseFloat(DOM.lon.value);
-      const timeThreshold = new Date(Date.now() - timeRange * 60 * 60 * 1000);
-      
-      filteredQuakes = earthquakeHistory.filter(q => {
-        if (parseFloat(q.mag) < minMag) return false;
-        if (new Date(q.time) < timeThreshold) return false;
-        if (q.lat && q.lon) {
-          const dist = haversine(userLat, userLon, q.lat, q.lon);
-          if (dist > maxDist) return false;
+        function toggleDebug() {
+            debugEnabled = !debugEnabled;
+            document.getElementById('debugInfo').style.display = debugEnabled ? 'block' : 'none';
+            showDebugInfo(`调试模式 ${debugEnabled ? '开启' : '关闭'}`);
         }
-        return true;
-      });
-      
-      renderList(filteredQuakes);
-      addQuakeMarkers(filteredQuakes);
-      renderTimeline(filteredQuakes);
-      triggerAlert(filteredQuakes);
-      updatePerformanceStats();
-    }
 
-    function renderList(quakes) {
-      const userLat = parseFloat(DOM.lat.value);
-      const userLon = parseFloat(DOM.lon.value);
-      
-      if (!quakes || quakes.length === 0) {
-        DOM.list.innerHTML = "<div>暂无地震数据</div>";
-        return;
-      }
-      
-      // 使用DocumentFragment优化DOM操作
-      const fragment = document.createDocumentFragment();
-      
-      quakes.forEach((q, index) => {
-        const dist = (q.lat && q.lon) ? haversine(userLat, userLon, q.lat, q.lon) : null;
-        const pWave = dist ? (dist / 6).toFixed(1) : "?";
-        const sWave = dist ? (dist / 3.5).toFixed(1) : "?";
-        const intensityIcon = getIntensityIcon(q.intensity);
-        const intensityColor = getIntensityColor(q.intensity);
-        
-        const item = document.createElement('div');
-        item.className = 'item';
-        item.style.borderLeftColor = intensityColor;
-        item.onclick = () => showQuakeDetails(index);
-        
-        item.innerHTML = `
-          <span class="icon">${intensityIcon}</span>
-          <span class="mag">M${q.mag}</span>
-          <span class="dist">${dist ? dist.toFixed(1)+'km' : '未知距离'}</span>
-          <span class="intensity">烈度/震度：${q.intensity || "未知"}</span>
-          <div style="margin-left:34px">
-            <span>${q.place}</span>
-            <span class="source-badge">${getSourceName(q.source)}</span>
-          </div>
-          <div style="margin-left:34px; font-size: 12px; color: #666;">
-            <span class="quake-time">${new Date(q.time).toLocaleString()}</span>
-          </div>
-        `;
-        
-        fragment.appendChild(item);
-      });
-      
-      DOM.list.innerHTML = '';
-      DOM.list.appendChild(fragment);
-    }
-
-    function showQuakeDetails(index) {
-      const q = filteredQuakes[index];
-      const userLat = parseFloat(DOM.lat.value);
-      const userLon = parseFloat(DOM.lon.value);
-      const dist = (q.lat && q.lon) ? haversine(userLat, userLon, q.lat, q.lon) : null;
-      const pWave = dist ? (dist / 6).toFixed(1) : "?";
-      const sWave = dist ? (dist / 3.5).toFixed(1) : "?";
-      
-      DOM.detailPlace.textContent = q.place;
-      DOM.detailMag.textContent = `M${q.mag}`;
-      DOM.detailTime.textContent = new Date(q.time).toLocaleString();
-      DOM.detailIntensity.textContent = q.intensity || "未知";
-      DOM.detailDistance.textContent = dist ? `${dist.toFixed(1)} km` : "未知";
-      DOM.detailPWave.textContent = `${pWave} 秒`;
-      DOM.detailSWave.textContent = `${sWave} 秒`;
-      DOM.detailSource.textContent = getSourceName(q.source);
-      
-      DOM.quakeDetails.style.display = 'block';
-      copyToClipboard(`${q.place} | M${q.mag} | ${new Date(q.time).toLocaleString()} | 数据源: ${getSourceName(q.source)}`);
-    }
-
-    function addQuakeMarkers(quakes) {
-      // 清除现有标记
-      quakeMarkers.forEach(m => map.removeLayer(m));
-      quakeMarkers = [];
-      
-      const userLat = parseFloat(DOM.lat.value);
-      const userLon = parseFloat(DOM.lon.value);
-      
-      quakes.forEach(q => {
-        if (q.lat && q.lon && !isNaN(q.lat) && !isNaN(q.lon)) {
-          const dist = haversine(userLat, userLon, q.lat, q.lon);
-          const pWave = (dist / 6).toFixed(1);
-          const sWave = (dist / 3.5).toFixed(1);
-          const color = getIntensityColor(q.intensity);
-          
-          const marker = L.circleMarker([q.lat, q.lon], {
-            radius: Math.max(6, q.mag * 3),
-            color: color,
-            fillColor: color,
-            fillOpacity: 0.7,
-            weight: 2
-          }).addTo(map);
-          
-          marker.bindPopup(`
-            <b>${getIntensityIcon(q.intensity)} 地震信息</b><br>
-            <b>地点</b>: ${q.place}<br>
-            <b>时间</b>: ${new Date(q.time).toLocaleString()}<br>
-            <b>震级</b>: M${q.mag}<br>
-            <b>烈度</b>: ${q.intensity || "未知"}<br>
-            <b>距离你</b>: ${dist.toFixed(1)}km<br>
-            <b>P波到达</b>: ${pWave}秒<br>
-            <b>S波到达</b>: ${sWave}秒<br>
-            <b>数据源</b>: ${getSourceName(q.source)}
-          `);
-          
-          quakeMarkers.push(marker);
+        function updateStatus(text) {
+            document.getElementById('statusText').textContent = text;
+            showDebugInfo(text);
         }
-      });
-      
-      // 调整视图
-      if (quakeMarkers.length > 0) {
-        const group = new L.featureGroup(quakeMarkers);
-        map.fitBounds(group.getBounds().pad(0.1));
-      }
-    }
 
-    function renderTimeline(quakes) {
-      DOM.timeline.innerHTML = '';
-      if (!quakes || quakes.length === 0) return;
-      
-      const times = quakes.map(q => new Date(q.time).getTime());
-      const minTime = Math.min(...times);
-      const maxTime = Math.max(...times);
-      const timeRange = maxTime - minTime;
-      
-      quakes.forEach((q, index) => {
-        const quakeTime = new Date(q.time).getTime();
-        const position = ((quakeTime - minTime) / timeRange) * 100;
-        
-        const marker = document.createElement('div');
-        marker.className = 'timeline-marker';
-        marker.style.left = `${position}%`;
-        marker.style.ba
+        // 使用异步函数控制初始化流程
+        async function initApp() {
+            showDebugInfo('开始初始化应用');
+            
+            try {
+                // 并行初始化地图和加载数据
+                const [map, earthquakeData] = await Promise.all([
+                    initMap(),
+                    loadEarthquakeData()
+                ]);
+                
+                AppState.map = map;
+                processEarthquakeData(earthquakeData);
+                document.getElementById('mapLoading').style.display = 'none';
+                
+            } catch (error) {
+                console.error('初始化失败:', error);
+                document.getElementById('mapLoading').textContent = '加载失败，请刷新或检查网络';
+            }
+        }
+
+        // 地图初始化函数 - 返回Promise
+        function initMap() {
+            return new Promise((resolve, reject) => {
+                // 动态加载Leaflet库
+                const script = document.createElement('script');
+                script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+                script.async = true;
+                
+                script.onload = () => {
+                    try {
+                        showDebugInfo('Leaflet库加载完成，开始初始化地图');
+                        // 初始化地图
+                        const map = L.map('map', {
+                            preferCanvas: true, // 使用Canvas渲染提升大量点位的性能
+                            zoomControl: false, // 可先禁用，后续按需添加
+                            center: [AppState.userLocation.lat, AppState.userLocation.lng],
+                            zoom: 3,
+                            minZoom: 1,
+                            maxZoom: 18,
+                            fadeAnimation: false,
+                            markerZoomAnimation: false
+                        });
+
+                        // 异步加载地图瓦片
+                        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                            attribution: '&copy; OpenStreetMap contributors'
+                        }).addTo(map);
+
+                        // 用户位置标记
+                        updateUserMarker(map);
+                        
+                        showDebugInfo('地图初始化完成');
+                        resolve(map);
+                    } catch (error) {
+                        reject(error);
+                    }
+                };
+                
+                script.onerror = () => reject(new Error('加载Leaflet库失败'));
+                document.head.appendChild(script);
+            });
+        }
+
+        // 更新用户位置标记
+        function updateUserMarker(map) {
+            if (AppState.userMarker) {
+                map.removeLayer(AppState.userMarker);
+            }
+            
+            AppState.userMarker = L.marker([AppState.userLocation.lat, AppState.userLocation.lng])
+                .addTo(map)
+                .bindPopup('你的位置');
+                
+            showDebugInfo(`用户位置标记更新: ${AppState.userLocation.lat}, ${AppState.userLocation.lng}`);
+        }
+
+        // 加载测算设置
+        function loadCalculationSettings() {
+            const pWaveSpeed = parseFloat(document.getElementById('pWaveSpeed').value);
+            const sWaveSpeed = parseFloat(document.getElementById('sWaveSpeed').value);
+            const warningDistance = parseFloat(document.getElementById('warningDistance').value);
+            const showCalculations = document.getElementById('showCalculations').checked;
+            
+            AppState.calculationSettings = {
+                pWaveSpeed: isNaN(pWaveSpeed) ? 6.0 : pWaveSpeed,
+                sWaveSpeed: isNaN(sWaveSpeed) ? 3.5 : sWaveSpeed,
+                warningDistance: isNaN(warningDistance) ? 300 : warningDistance,
+                showCalculations: showCalculations
+            };
+            
+            showDebugInfo('测算设置已加载');
+        }
+
+        // 切换高级设置显示
+        function toggleAdvancedSettings() {
+            const advancedSettings = document.getElementById('advancedSettings');
+            advancedSettings.style.display = advancedSettings.style.display === 'none' ? 'block' : 'none';
+        }
+
+        // 切换地图样式
+        function changeMapStyle(style) {
+            showDebugInfo('切换地图样式: ' + style);
+            
+            // 清除所有图层
+            AppState.map.eachLayer((layer) => {
+                if (layer instanceof L.TileLayer) {
+                    AppState.map.removeLayer(layer);
+                }
+            });
+            
+            // 添加新图层
+            switch(style) {
+                case 'simple':
+                    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                        attribution: '&copy; OpenStreetMap contributors'
+                    }).addTo(AppState.map);
+                    break;
+                case 'topo':
+                    L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {
+                        attribution: '&copy; OpenTopoMap contributors'
+                    }).addTo(AppState.map);
+                    break;
+                case 'dark':
+                    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+                        attribution: '&copy; CARTO'
+                    }).addTo(AppState.map);
+                    break;
+            }
+            
+            // 重新添加用户标记和地震标记
+            updateUserMarker(AppState.map);
+            addEarthquakeMarkers(AppState.quakes);
+            
+            updateStatus(`已切换到 ${style} 地图`);
+        }
+
+        // 切换数据源
+        function changeDataSource(source) {
+            // 更新按钮状态
+            document.querySelectorAll('.data-source-btn').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            event.target.classList.add('active');
+            
+            AppState.currentDataSource = source;
+            AppState.dataCache = null; // 清除缓存
+            updateStatus(`切换到数据源: ${source}`);
+            loadEarthquakeData();
+        }
+
+        // 保存当前位置
+        function saveCurrentLocation() {
+            const lat = parseFloat(document.getElementById('latInput').value);
+            const lng = parseFloat(document.getElementById('lngInput').value);
+            
+            if (isNaN(lat) || isNaN(lng)) {
+                alert('请输入有效的经纬度坐标');
+                return;
+            }
+            
+            AppState.userLocation.lat = lat;
+            AppState.userLocation.lng = lng;
+            
+            updateUserMarker(AppState.map);
+            AppState.map.setView([lat, lng], 5);
+            loadEarthquakeData();
+            
+            showDebugInfo(`位置已保存: ${lat}, ${lng}`);
+            alert('位置已保存！');
+        }
+
+        // 获取当前位置
+        function getCurrentLocation() {
+            if (!navigator.geolocation) {
+                alert('您的浏览器不支持地理位置获取');
+                return;
+            }
+            
+            updateStatus('正在获取当前位置...');
+            
+            navigator.geolocation.getCurrentPosition(
+                (position) => {
+                    const lat = position.coords.latitude;
+                    const lng = position.coords.longitude;
+                    
+                    document.getElementById('latInput').value = lat.toFixed(6);
+                    document.getElementById('lngInput').value = lng.toFixed(6);
+                    
+                    AppState.userLocation.lat = lat;
+                    AppState.userLocation.lng = lng;
+                    
+                    updateUserMarker(AppState.map);
+                    AppState.map.setView([lat, lng], 8);
+                    loadEarthquakeData();
+                    
+                    updateStatus('当前位置已获取');
+                },
+                (error) => {
+                    updateStatus('获取当前位置失败: ' + error.message);
+                    alert('获取当前位置失败：' + error.message);
+                }
+            );
+        }
+
+        // 加载地震数据
+        async function loadEarthquakeData() {
+            updateStatus('正在加载地震数据...');
+            document.getElementById('loading').style.display = 'block';
+            
+            // 检查缓存
+            const now = Date.now();
+            if (AppState.dataCache && (now - AppState.cacheTimestamp) < AppState.CACHE_TTL) {
+                showDebugInfo('使用缓存数据');
+                processEarthquakeData(AppState.dataCache);
+                document.getElementById('loading').style.display = 'none';
+                return;
+            }
+            
+            try {
+                showDebugInfo(`开始请求 ${AppState.currentDataSource} 数据...`);
+                const data = await fetchEarthquakeData(AppState.currentDataSource);
+                
+                // 缓存数据
+                AppState.dataCache = data;
+                AppState.cacheTimestamp = now;
+                
+                // 处理数据
+                processEarthquakeData(data);
+                
+            } catch (error) {
+                updateStatus('数据加载失败: ' + error.message);
+                console.error('Data load error:', error);
+                showDebugInfo('数据加载失败，使用备用数据: ' + error.message);
+                useFallbackData();
+            } finally {
+                document.getElementById('loading').style.display = 'none';
+            }
+        }
+
+        // 获取地震数据（多数据源）
+        async function fetchEarthquakeData(source) {
+            const urls = {
+                'usgs': 'https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_day.geojson',
+                'emsc': 'https://www.seismicportal.eu/fdsnws/event/1/query?format=json&minmag=2.5&limit=100',
+                'jma': 'https://api.p2pquake.net/v2/jma/earthquakes?limit=50',
+                'cenc': 'https://api.oioweb.cn/api/earthquake/list' // 中国地震台网数据
+            };
+
+            showDebugInfo(`请求URL: ${urls[source]}`);
+            
+            try {
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 5000); // 5秒超时
+                
+                const response = await fetch(urls[source], {
+                    signal: controller.signal,
+                    mode: 'cors'
+                });
+                
+                clearTimeout(timeoutId);
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                const data = await response.json();
+                showDebugInfo(`成功从 ${source} 获取数据`);
+                
+                // 转换不同数据源格式为标准格式
+                return convertToStandardFormat(data, source);
+            } catch (error) {
+                showDebugInfo(`数据源 ${source} 请求失败: ${error.message}`);
+                throw error;
+            }
+        }
+
+        // 转换数据为标准格式
+        function convertToStandardFormat(data, source) {
+            if (source === 'usgs') {
+                return data;
+            } else if (source === 'emsc') {
+                return convertEmscToGeoJSON(data);
+            } else if (source === 'jma') {
+                return convertJmaToGeoJSON(data);
+            } else if (source === 'cenc') {
+                return convertCencToGeoJSON(data);
+            } else {
+                return data;
+            }
+        }
+
+        // 转换EMSC数据为GeoJSON
+        function convertEmscToGeoJSON(data) {
+            const features = (data.features || []).map(feature => ({
+                type: "Feature",
+                properties: {
+                    mag: feature.properties?.mag || 0,
+                    place: feature.properties?.description || '未知地区',
+                    time: feature.properties?.time || Date.now(),
+                    title: `M${feature.properties?.mag || 0} 地震 - ${feature.properties?.description || '未知地区'}`,
+                    depth: feature.properties?.depth || 10
+                },
+                geometry: {
+                    type: "Point",
+            
